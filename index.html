@@ -57,6 +57,9 @@
         .required-star { color: var(--danger); margin-left: 2px; }
         /* 小型背景存檔提示：一般寫入不再用全螢幕遮罩，避免使用者誤以為切分頁壞掉。 */
         .saving-toast { position: fixed; right: 24px; top: 24px; z-index: 10001; background: rgba(255,255,255,0.96); color: #333; border: 1px solid #e1e4e8; border-left: 5px solid var(--primary); border-radius: 12px; padding: 10px 14px; box-shadow: 0 6px 18px rgba(0,0,0,0.12); font-size: 13px; font-weight: 700; }
+        /* 區塊級遺傳分析 loading：只提示該區塊正在計算，不鎖全頁。 */
+        .analysis-loading-box { margin-top: 10px; padding: 14px; background: #fff; border: 1px dashed var(--primary); border-radius: 12px; color: var(--primary); font-size: 13px; font-weight: 800; text-align: center; }
+        .analysis-loading-box .sub { display:block; margin-top:4px; color:#777; font-size:11px; font-weight:500; }
         /* 可展開 / 收起的遺傳分析區：候選卡與 sticky 我方寵物共用。 */
         .genetic-analysis-box { margin-top: 8px; padding: 8px; background: #f0f7ff; border-radius: 8px; border: 1px solid #dbeafe; font-size: 11px; color: #444; }
         .genetic-analysis-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 0; cursor: pointer; font-weight: 800; color: var(--primary); }
@@ -126,6 +129,7 @@
             <button class="tab-btn" :class="{active: currentTab==='pu'}" @click="currentTab='pu'">🩵 普普</button>
             <button class="tab-btn" :class="{active: currentTab==='breeding'}" @click="currentTab='breeding'">🥚 繁育中 ({{ breedingQueue.length }})</button>
             <button class="tab-btn" :class="{active: currentTab==='analysis'}" @click="currentTab='analysis'">📊 遺傳分析</button>
+            <button class="tab-btn" :class="{active: currentTab==='singleDetail'}" @click="currentTab='singleDetail'">🧬 單體明細</button>
             <button class="tab-btn" :class="{active: currentTab==='stats'}" @click="currentTab='stats'">📒 紀錄統計</button>
         </div>
 
@@ -317,25 +321,26 @@
                         <span class="muted-note">全體紀錄平均機制</span>
                     </div>
                     <div class="filter-row">
-                        <select v-model="ruleFilterSpecies">
+                        <select v-model="ruleFilterSpecies" @change="triggerRuleAnalysis">
                             <option value="ALL">所有物種</option>
                             <option v-for="s in speciesList" :key="s" :value="s">{{ s }}</option>
                         </select>
-                        <select v-model="ruleFilterCategory">
+                        <select v-model="ruleFilterCategory" @change="triggerRuleAnalysis">
                             <option value="ALL">所有分類</option>
                             <option v-for="c in ruleCategoryOptions" :key="c" :value="c">{{ c }}</option>
                         </select>
-                        <select v-model="ruleFilterTopTag">
+                        <select v-model="ruleFilterTopTag" @change="triggerRuleAnalysis">
                             <option value="ALL">所有高階詞條</option>
                             <option v-for="t in ruleTopTagOptions" :key="t.key" :value="t.key">{{ t.label }}</option>
                         </select>
-                        <select v-model="ruleFilterConfidence">
+                        <select v-model="ruleFilterConfidence" @change="triggerRuleAnalysis">
                             <option value="ALL">所有可信度</option>
                             <option value="medium">中以上</option>
                             <option value="high">高</option>
                         </select>
                     </div>
-                    <div v-if="filteredGlobalHighTagStats.length" class="pet-grid" style="grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); margin-top:10px;">
+                    <div v-if="isRuleAnalyzing" class="analysis-loading-box">🧬 遺傳數據分析中...<span class="sub">正在重新整理大規則機率</span></div>
+                    <div v-else-if="filteredGlobalHighTagStats.length" class="pet-grid" style="grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); margin-top:10px;">
                         <div v-for="row in filteredGlobalHighTagStats" :key="row.key" class="stat-card">
                             <strong>{{ row.species }}｜{{ row.category }}｜{{ row.name }}</strong>
                             <div class="muted-note">樣本 {{ row.sample }}｜{{ row.confidenceLabel }}</div>
@@ -360,12 +365,13 @@
                         <span class="muted-note">只篩選物種，自動排行</span>
                     </div>
                     <div class="filter-row">
-                        <select v-model="rankingFilterSpecies">
+                        <select v-model="rankingFilterSpecies" @change="triggerRankingAnalysis">
                             <option value="ALL">所有物種</option>
                             <option v-for="s in speciesList" :key="s" :value="s">{{ s }}</option>
                         </select>
                     </div>
-                    <div class="pet-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); margin-top:10px;">
+                    <div v-if="isRankingAnalyzing" class="analysis-loading-box">🧬 遺傳數據分析中...<span class="sub">正在重新整理每位持有者前三名</span></div>
+                    <div v-else class="pet-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); margin-top:10px;">
                         <div v-for="group in ownerTopHighInheritance" :key="group.owner" class="stat-card">
                             <strong>{{ group.owner }}</strong>
                             <div v-if="group.rows.length">
@@ -383,53 +389,102 @@
                     </div>
                 </div>
 
-                <!-- 2A. 單體寵物詳細遺傳明細 -->
-                <div class="category-block" style="margin-top:15px;">
+                <!-- 2A 已移到獨立「單體明細」分頁，避免遺傳分析首頁一次載入太多計算。 -->
+                <!-- 3. 高階詞條總表：需先套用篩選後才顯示，避免預設整表重算。 -->
+                <div class="category-block" style="margin-top:15px; background:#f8f9fa;">
                     <div class="analysis-section-title">
-                        <strong>🧬 單體寵物高階遺傳明細</strong>
-                        <span class="muted-note">可多選高階詞條</span>
+                        <strong>📊 寵物綜合高階遺傳總表</strong>
+                        <span class="muted-note">先篩選持有者與物種後顯示</span>
                     </div>
                     <div class="filter-row">
-                        <select v-model="detailTagMatchMode">
-                            <option value="any">符合任一高階詞條</option>
-                            <option value="all">符合全部高階詞條</option>
-                        </select>
-                        <select v-model="detailFilterOwner">
+                        <select v-model="summaryFilterOwner" @change="summaryFilterApplied=false">
                             <option value="ALL">所有持有者</option>
                             <option v-for="o in ownerList" :key="o" :value="o">{{ o }}</option>
                         </select>
-                        <select v-model="detailFilterSpecies">
+                        <select v-model="summaryFilterSpecies" @change="summaryFilterApplied=false">
                             <option value="ALL">所有物種</option>
                             <option v-for="s in speciesList" :key="s" :value="s">{{ s }}</option>
                         </select>
-                        <select v-model="detailFilterGender">
-                            <option value="ALL">全部性別</option>
-                            <option value="公">公</option>
-                            <option value="母">母</option>
-                        </select>
-                        <select v-model="detailFilterConfidence">
-                            <option value="ALL">所有可信度</option>
-                            <option value="medium">中以上</option>
-                            <option value="high">高</option>
-                        </select>
+                        <button @click="applySummaryFilter" :disabled="isSummaryAnalyzing" :style="{background:isSummaryAnalyzing ? '#aaa' : 'var(--primary)', color:'white', border:'none', fontWeight:'bold', cursor:isSummaryAnalyzing ? 'not-allowed' : 'pointer'}">{{ isSummaryAnalyzing ? '分析中...' : '套用篩選' }}</button>
                     </div>
-                    <div style="margin-top:10px; border-top:1px dashed #ddd; padding-top:10px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
-                            <strong style="font-size:12px;">🏷️ 高階詞條多選</strong>
-                            <button v-if="detailSelectedTopTags.length" @click="detailSelectedTopTags=[]" style="font-size:11px; padding:4px 8px;">清除高階詞條</button>
+                    <table class="mini-table" style="margin-top:8px;">
+                        <thead><tr><th>持有者</th><th>寵物</th><th>高階詞條</th><th>觀察</th><th>精準</th><th>降級</th><th>返祖</th><th>掉詞</th><th>可信度</th></tr></thead>
+                        <tbody v-if="isSummaryAnalyzing"><tr><td colspan="9" class="analysis-loading-box">🧬 遺傳數據分析中...<span class="sub">正在依篩選條件整理寵物綜合總表</span></td></tr></tbody>
+                        <tbody v-else-if="summaryFilterApplied && filteredSummaryPetHighInheritanceRows.length">
+                            <tr v-for="row in filteredSummaryPetHighInheritanceRows" :key="row.id">
+                                <td>{{ row.owner }}</td><td>{{ row.name }}</td><td>{{ row.highTagsLabel }}</td><td>{{ row.opportunities }}</td><td>{{ row.exactRate }}%</td><td>{{ row.downgradeRate }}%</td><td>{{ row.fallbackRate }}%</td><td>{{ row.dropRate }}%</td><td>{{ row.confidenceLabel }}</td>
+                            </tr>
+                        </tbody>
+                        <tbody v-else>
+                            <tr><td colspan="9" class="muted-note">{{ summaryFilterApplied ? '目前沒有符合條件的資料。' : '待篩選' }}</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+
+        <div v-if="currentTab === 'singleDetail'">
+            <div class="card">
+                <h3>🧬 單體寵物高階遺傳明細</h3>
+                <p class="muted-note">這頁計算量較大，預設不顯示結果。展開進階篩選並按「套用篩選」後才會開始計算。</p>
+                <div class="category-block">
+                    <div class="analysis-section-title">
+                        <strong>🔎 進階篩選</strong>
+                        <button @click="detailAdvancedExpanded = !detailAdvancedExpanded" style="background:var(--primary); color:white; border:none; font-size:12px; padding:6px 10px; border-radius:8px; font-weight:bold;">
+                            {{ detailAdvancedExpanded ? '🔼 收起進階篩選' : '🔽 展開進階篩選' }}
+                        </button>
+                    </div>
+                    <div v-show="detailAdvancedExpanded" style="margin-top:10px; border-top:1px dashed #ddd; padding-top:10px;">
+                        <div class="filter-row">
+                            <select v-model="detailTagMatchMode" @change="detailFilterApplied=false">
+                                <option value="any">符合任一高階詞條</option>
+                                <option value="all">符合全部高階詞條</option>
+                            </select>
+                            <select v-model="detailFilterOwner" @change="detailFilterApplied=false">
+                                <option value="ALL">所有持有者</option>
+                                <option v-for="o in ownerList" :key="o" :value="o">{{ o }}</option>
+                            </select>
+                            <select v-model="detailFilterSpecies" @change="detailFilterApplied=false">
+                                <option value="ALL">所有物種</option>
+                                <option v-for="s in speciesList" :key="s" :value="s">{{ s }}</option>
+                            </select>
+                            <select v-model="detailFilterGender" @change="detailFilterApplied=false">
+                                <option value="ALL">全部性別</option>
+                                <option value="公">公</option>
+                                <option value="母">母</option>
+                            </select>
+                            <select v-model="detailFilterConfidence" @change="detailFilterApplied=false">
+                                <option value="ALL">所有可信度</option>
+                                <option value="medium">中以上</option>
+                                <option value="high">高</option>
+                            </select>
+                            <button @click="applyDetailFilter" :disabled="isDetailAnalyzing" :style="{background:isDetailAnalyzing ? '#aaa' : 'var(--primary)', color:'white', border:'none', fontWeight:'bold', cursor:isDetailAnalyzing ? 'not-allowed' : 'pointer'}">{{ isDetailAnalyzing ? '分析中...' : '套用篩選' }}</button>
                         </div>
-                        <div v-for="(group, cat) in detailTopTagsByCategory" :key="cat" style="margin-top:8px; display:flex; align-items:flex-start; gap:10px;">
-                            <span class="reg-category-title" style="min-width:80px; text-align:center; margin:0;">{{ cat }}</span>
-                            <div style="display:flex; flex-wrap:wrap; gap:6px;">
-                                <label v-for="t in group" :key="t.key" style="font-size:11px; display:inline-flex; gap:4px; align-items:center; cursor:pointer;">
-                                    <input type="checkbox" :value="t.key" v-model="detailSelectedTopTags">
-                                    <span class="tag-pill" :style="{...getTagStyle(t.name), fontSize:'10px', padding:'4px 8px', margin:0}">{{ t.name }}</span>
-                                </label>
+                        <div style="margin-top:10px; border-top:1px dashed #ddd; padding-top:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+                                <strong style="font-size:12px;">🏷️ 高階詞條多選</strong>
+                                <button v-if="detailSelectedTopTags.length" @click="detailSelectedTopTags=[]; detailFilterApplied=false" style="font-size:11px; padding:4px 8px;">清除高階詞條</button>
                             </div>
+                            <div v-for="(group, cat) in detailTopTagsByCategory" :key="cat" style="margin-top:8px; display:flex; align-items:flex-start; gap:10px;">
+                                <span class="reg-category-title" style="min-width:80px; text-align:center; margin:0;">{{ cat }}</span>
+                                <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                                    <label v-for="t in group" :key="t.key" style="font-size:11px; display:inline-flex; gap:4px; align-items:center; cursor:pointer;">
+                                        <input type="checkbox" :value="t.key" v-model="detailSelectedTopTags" @change="detailFilterApplied=false">
+                                        <span class="tag-pill" :style="{...getTagStyle(t.name), fontSize:'10px', padding:'4px 8px', margin:0}">{{ t.name }}</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div v-if="!Object.keys(detailTopTagsByCategory).length" class="muted-note">目前沒有符合物種篩選的高階詞條。</div>
                         </div>
-                        <div v-if="!Object.keys(detailTopTagsByCategory).length" class="muted-note">目前沒有符合物種篩選的高階詞條。</div>
                     </div>
-                    <div v-if="filteredPetHighInheritanceRows.length" style="margin-top:10px;">
+                </div>
+
+                <div class="category-block" style="margin-top:15px; background:#f8f9fa;">
+                    <strong>🧬 單體寵物高階遺傳明細</strong>
+                    <div v-if="isDetailAnalyzing" class="analysis-loading-box">🧬 遺傳數據分析中...<span class="sub">正在依進階篩選整理單體明細</span></div>
+                    <div v-else-if="!detailFilterApplied" class="muted-note" style="margin-top:10px; padding:12px; background:white; border:1px dashed #ddd; border-radius:8px;">待篩選</div>
+                    <div v-else-if="filteredPetHighInheritanceRows.length" style="margin-top:10px;">
                         <div v-for="row in filteredPetHighInheritanceRows" :key="row.id" class="stat-card">
                             <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
                                 <strong>{{ row.name }}｜{{ row.owner }}｜{{ row.gender || '未知性別' }}</strong>
@@ -450,31 +505,6 @@
                         </div>
                     </div>
                     <div v-else class="muted-note" style="margin-top:10px;">目前沒有符合條件的單體遺傳資料。</div>
-                </div>
-
-                <!-- 3. 高階詞條總表 -->
-                <div class="category-block" style="margin-top:15px; background:#f8f9fa;">
-                    <strong>📊 寵物綜合高階遺傳總表</strong>
-                    <table class="mini-table" style="margin-top:8px;">
-                        <thead><tr><th>持有者</th><th>寵物</th><th>高階詞條</th><th>觀察</th><th>精準</th><th>降級</th><th>返祖</th><th>掉詞</th><th>可信度</th></tr></thead>
-                        <tbody>
-                            <tr v-for="row in petHighInheritanceRows" :key="row.id">
-                                <td>{{ row.owner }}</td><td>{{ row.name }}</td><td>{{ row.highTagsLabel }}</td><td>{{ row.opportunities }}</td><td>{{ row.exactRate }}%</td><td>{{ row.downgradeRate }}%</td><td>{{ row.fallbackRate }}%</td><td>{{ row.dropRate }}%</td><td>{{ row.confidenceLabel }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="category-block" style="margin-top:15px; background:#f8f9fa;">
-                    <strong>📋 寵物 × 高階詞條明細表</strong>
-                    <table class="mini-table" style="margin-top:8px;">
-                        <thead><tr><th>持有者</th><th>寵物</th><th>分類</th><th>高階詞條</th><th>樣本</th><th>精準</th><th>降級</th><th>返祖</th><th>掉詞</th></tr></thead>
-                        <tbody>
-                            <tr v-for="row in petHighTagDetailRows" :key="row.petId + '|' + row.key">
-                                <td>{{ row.owner }}</td><td>{{ row.petName }}</td><td>{{ row.category }}</td><td>{{ row.name }}</td><td>{{ row.sample }}</td><td>{{ row.exactRate }}%</td><td>{{ row.downgradeRate }}%</td><td>{{ row.fallbackRate }}%</td><td>{{ row.dropRate }}%</td>
-                            </tr>
-                        </tbody>
-                    </table>
                 </div>
             </div>
         </div>
@@ -791,7 +821,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycbzNBM8JrsMsAO52YZ3volsKGFwPD5OWNOVH4Ef2Tl7K1oSB8I5xIRN_vMQLIeoJu-39ZA/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycbxQ8tmLLqJVwjPLjlaIw4vG1ubRDVpi43DQJK33TDhFLV7IHiR_Yr1CvRfkE2exN0gyLg/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -871,17 +901,30 @@
                     // 遺傳分析頁篩選條件
                     reportOwnerFilter: 'ALL',
                     reportTypeFilter: 'ALL',
-                    ruleFilterSpecies: 'ALL',
-                    ruleFilterCategory: 'ALL',
+                    ruleFilterSpecies: '福寶寶',
+                    ruleFilterCategory: '瞳色',
                     ruleFilterTopTag: 'ALL',
                     ruleFilterConfidence: 'ALL',
-                    rankingFilterSpecies: 'ALL',
+                    rankingFilterSpecies: '福寶寶',
+                    // 單體明細分頁：預設福寶寶，但必須套用篩選後才顯示結果，避免一開頁就做大量計算。
                     detailFilterOwner: 'ALL',
-                    detailFilterSpecies: 'ALL',
+                    detailFilterSpecies: '福寶寶',
                     detailFilterGender: 'ALL',
                     detailFilterConfidence: 'ALL',
                     detailTagMatchMode: 'any',
-                    detailSelectedTopTags: []
+                    detailSelectedTopTags: [],
+                    detailAdvancedExpanded: false,
+                    detailFilterApplied: false,
+                    // 寵物綜合高階遺傳總表：需先套用持有者 / 物種篩選，避免預設整表重算。
+                    summaryFilterOwner: 'ALL',
+                    summaryFilterSpecies: '福寶寶',
+                    summaryFilterApplied: false,
+                    // 區塊級遺傳分析 loading。這些只提示該區塊正在計算，不會鎖住整個頁面。
+                    isRuleAnalyzing: false,
+                    isRankingAnalyzing: false,
+                    isSummaryAnalyzing: false,
+                    isDetailAnalyzing: false,
+                    analysisLoadingTimers: {}
                 }
             },
             // ============================================================
@@ -1007,7 +1050,7 @@
                     Object.keys(grouped).forEach(cat => grouped[cat].sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-Hant')));
                     return grouped;
                 },
-                globalHighTagStats() { return this.getGlobalHighTagStats(); },
+                globalHighTagStats() { return this.getGlobalHighTagStats({ species: this.ruleFilterSpecies === 'ALL' ? '' : this.ruleFilterSpecies }); },
                 filteredGlobalHighTagStats() {
                     return this.globalHighTagStats.filter(row => {
                         if (this.ruleFilterSpecies !== 'ALL' && row.species !== this.ruleFilterSpecies) return false;
@@ -1018,26 +1061,33 @@
                     });
                 },
                 petHighInheritanceRows() { return this.getPetHighInheritanceRows(); },
-                petHighTagDetailRows() {
-                    return this.petHighInheritanceRows.flatMap(row => row.details.map(d => ({ ...d, owner: row.owner, petName: row.name, petId: row.id })));
+                filteredSummaryPetHighInheritanceRows() {
+                    if (!this.summaryFilterApplied) return [];
+                    return this.getPetHighInheritanceRows({
+                        species: this.summaryFilterSpecies === 'ALL' ? '' : this.summaryFilterSpecies,
+                        owner: this.summaryFilterOwner === 'ALL' ? '' : this.summaryFilterOwner
+                    });
                 },
                 ownerTopHighInheritance() {
                     const species = this.rankingFilterSpecies === 'ALL' ? '' : this.rankingFilterSpecies;
+                    const rows = this.getPetHighInheritanceRows({ species });
                     return (this.ownerList || []).map(owner => {
-                        const rows = this.petHighInheritanceRows
-                            .filter(r => r.owner === owner && (!species || r.species === species))
+                        const topRows = rows
+                            .filter(r => r.owner === owner)
                             .filter(r => r.opportunities > 0)
                             .sort((a, b) => b.rankScore - a.rankScore)
                             .slice(0, 3);
-                        return { owner, rows };
+                        return { owner, rows: topRows };
                     });
                 },
                 filteredPetHighInheritanceRows() {
+                    if (!this.detailFilterApplied) return [];
                     const selected = new Set(this.detailSelectedTopTags || []);
-                    return this.petHighInheritanceRows.filter(row => {
-                        if (this.detailFilterOwner !== 'ALL' && row.owner !== this.detailFilterOwner) return false;
-                        if (this.detailFilterSpecies !== 'ALL' && row.species !== this.detailFilterSpecies) return false;
-                        if (this.detailFilterGender !== 'ALL' && row.gender !== this.detailFilterGender) return false;
+                    return this.getPetHighInheritanceRows({
+                        species: this.detailFilterSpecies === 'ALL' ? '' : this.detailFilterSpecies,
+                        owner: this.detailFilterOwner === 'ALL' ? '' : this.detailFilterOwner,
+                        gender: this.detailFilterGender === 'ALL' ? '' : this.detailFilterGender
+                    }).filter(row => {
                         if (!this.isConfidenceAllowed(row.confidenceLevel, this.detailFilterConfidence)) return false;
                         if (selected.size) {
                             const keys = new Set((row.details || []).map(d => d.key));
@@ -1094,6 +1144,7 @@
                 },
                 // 單體明細切換物種時，清掉不屬於目前物種的高階詞條，避免隱形條件殘留。
                 detailFilterSpecies() {
+                    this.detailFilterApplied = false;
                     if (this.detailFilterSpecies === 'ALL') return;
                     const allowed = new Set(this.highTagOptions
                         .filter(t => t.species === this.detailFilterSpecies)
@@ -1127,6 +1178,38 @@
                 },
                 resetVisiblePetLimit() {
                     this.visiblePetLimit = 60;
+                },
+                // 顯示短暫的區塊級「遺傳數據分析中」提示。
+                // 用途：大規則 / 前三名這類自動計算區，篩選變更後給使用者明確回饋，但不鎖全頁。
+                pulseAnalysisLoading(flagName, timerKey, duration = 350) {
+                    this[flagName] = true;
+                    if (this.analysisLoadingTimers && this.analysisLoadingTimers[timerKey]) clearTimeout(this.analysisLoadingTimers[timerKey]);
+                    this.analysisLoadingTimers[timerKey] = setTimeout(() => {
+                        this[flagName] = false;
+                    }, duration);
+                },
+                triggerRuleAnalysis() {
+                    this.pulseAnalysisLoading('isRuleAnalyzing', 'rule');
+                },
+                triggerRankingAnalysis() {
+                    this.pulseAnalysisLoading('isRankingAnalyzing', 'ranking');
+                },
+                // 需按「套用篩選」才計算的重型區塊，先顯示區塊 loading，再延後一拍套用，讓畫面有機會先渲染提示。
+                applySummaryFilter() {
+                    this.isSummaryAnalyzing = true;
+                    this.summaryFilterApplied = false;
+                    setTimeout(() => {
+                        this.summaryFilterApplied = true;
+                        this.$nextTick(() => setTimeout(() => { this.isSummaryAnalyzing = false; }, 0));
+                    }, 25);
+                },
+                applyDetailFilter() {
+                    this.isDetailAnalyzing = true;
+                    this.detailFilterApplied = false;
+                    setTimeout(() => {
+                        this.detailFilterApplied = true;
+                        this.$nextTick(() => setTimeout(() => { this.isDetailAnalyzing = false; }, 0));
+                    }, 25);
                 },
                 // 根據稀有度回傳每週刷新後的初始繁育次數。
                 getInitialRemainingByRarity(rarity) {
@@ -2545,9 +2628,10 @@
                         confidenceWeight: info.weight
                     };
                 },
-                getGlobalHighTagStats() {
+                getGlobalHighTagStats(options = {}) {
+                    const speciesFilter = options.species || '';
                     const byKey = {};
-                    this.getHighTagOptions().forEach(opt => {
+                    this.getHighTagOptions().filter(opt => !speciesFilter || opt.species === speciesFilter).forEach(opt => {
                         byKey[opt.key] = {
                             key: opt.key, species: opt.species, category: opt.category, name: opt.name, downgrade: opt.downgrade,
                             sample: 0, exact: 0, downgradeCount: 0, fallback: 0, drop: 0,
@@ -2610,12 +2694,18 @@
                         return this.makeOutcomeStats(row);
                     });
                 },
-                getPetHighInheritanceRows() {
+                getPetHighInheritanceRows(options = {}) {
+                    const speciesFilter = options.species || '';
+                    const ownerFilter = options.owner || '';
+                    const genderFilter = options.gender || '';
                     return (this.pets || [])
                         .filter(p => this.isOfficialPet(p))
+                        .filter(p => !ownerFilter || p.owner === ownerFilter)
+                        .filter(p => !genderFilter || p.gender === genderFilter)
+                        .filter(p => !speciesFilter || this.getSpeciesOfPet(p) === speciesFilter)
                         .map(p => {
                             const species = this.getSpeciesOfPet(p);
-                            const details = this.getPetHighTagDetails(p);
+                            const details = this.getPetHighTagDetails(p, speciesFilter);
                             const sample = details.reduce((s, d) => s + d.sample, 0);
                             const exact = details.reduce((s, d) => s + d.exact, 0);
                             const downgradeCount = details.reduce((s, d) => s + d.downgradeCount, 0);
