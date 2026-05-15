@@ -262,6 +262,13 @@
                         <div style="font-size: 10px; margin-top: 4px; font-weight: bold;" :style="{color: item[side+'Bag'] ? '#d35400' : '#888'}">
                             {{ item[side+'Bag'] === 'rare' ? '✨ 典藏珍繁育中' : (item[side+'Bag'] === 'normal' ? '✨ 典藏繁育中' : '普通繁育中') }}
                         </div>
+                        <div v-if="item.remainingTime > 0 && !item[side+'Done']" style="margin-top: 6px;">
+                            <button @click="executeInterrupt(item, side)" 
+                                    :disabled="isLoading" 
+                                    style="font-size: 10px; padding: 2px 8px; background: #fff; color: #8e44ad; border: 1px solid #8e44ad; border-radius: 6px; cursor: pointer;">
+                                ✂️ 中斷繁育
+                            </button>
+                        </div>
                     </div>
                     <div style="margin-bottom:8px;">
                         <strong>[{{ getPet(item[side]).rarity }}] {{ getPet(item[side]).name }}</strong> 
@@ -536,7 +543,6 @@
                     <div style="margin-bottom:10px;">
                         分類：<select v-model="singleChild.type"><option value="good">❤️ 好胚</option><option value="normal">🩵 普普</option><option value="bad">🖤 爛爛</option></select>
                     </div>
-                    
                     <div v-if="singleChild.type === 'good' || singleChild.type === 'normal'">
                         <div style="margin-top:10px;">名稱：<span class="required-star">*</span><br><input v-model="singleChild.name" placeholder="子嗣名稱" @blur="checkAutoName"></div>
                         <div style="margin-top:10px;">性別：<span class="required-star">*</span><br>
@@ -689,7 +695,7 @@
                     <div v-if="!knownOwnerFilter" style="margin-top:12px; font-size:12px; color:#666;">請先選擇持有者，才會顯示候選寵物。</div>
                 </div>
                 <!-- 新增：錦囊選擇與確認配對彈窗 -->
-        <div v-if="showPairConfirmModal" class="modal" @click.self="showPairConfirmModal = false">
+<div v-if="showPairConfirmModal" class="modal" @click.self="showPairConfirmModal = false">
             <div class="card" style="width: 500px; max-width: 90%; max-height: 90vh; overflow-y: auto;">
                 <h3 style="margin-top: 0;">🤝 確認繁育配對</h3>
                 <p v-if="pairConfirmData.bagType !== 'none'" style="color: #d35400; font-weight: bold; background: #fff8e1; padding: 8px; border-radius: 8px; font-size: 14px;">
@@ -697,7 +703,6 @@
                 </p>
 
                 <div class="breed-pair-card" style="margin-top: 15px;">
-                    <!-- A 方 -->
                     <div class="breed-pet-side">
                         <div style="text-align:center; border-bottom:1px solid #eee; margin-bottom:8px; padding-bottom:5px;"><strong>{{ pairConfirmData.targetPet.owner }}</strong></div>
                         <div style="margin-bottom:8px; font-size: 13px;"><strong>{{ getPetDisplayTitle(pairConfirmData.targetPet) }}</strong></div>
@@ -710,9 +715,13 @@
                                 <input type="checkbox" v-model="pairConfirmData.targetUseBag">
                                 使用錦囊 (剩 {{ getPityCount(pairConfirmData.targetPet.owner, pairConfirmData.bagType) }} 次)
                             </label>
+                            <label v-if="pairConfirmData.targetUseBag" style="cursor:pointer; font-size: 12px; font-weight: bold; color: #f39c12; display:flex; align-items:center; gap: 4px; margin-top: 6px; border-top: 1px dashed #ccc; padding-top: 4px;">
+                                <input type="checkbox" v-model="pairConfirmData.targetUseGoldenPill">
+                                💊 使用金丹 (不扣/不刷新保底，結果必出 典藏/典藏珍)
+                            </label>
                         </div>
                     </div>
-                    <!-- B 方 -->
+                    
                     <div class="breed-pet-side">
                         <div style="text-align:center; border-bottom:1px solid #eee; margin-bottom:8px; padding-bottom:5px;"><strong>{{ pairConfirmData.partnerPet.owner }}</strong></div>
                         <div style="margin-bottom:8px; font-size: 13px;"><strong>{{ getPetDisplayTitle(pairConfirmData.partnerPet) }}</strong></div>
@@ -724,6 +733,10 @@
                             <label style="cursor:pointer; font-size: 12px; font-weight: bold; color: #d35400; display:flex; align-items:center; gap: 4px;">
                                 <input type="checkbox" v-model="pairConfirmData.partnerUseBag">
                                 使用錦囊 (剩 {{ getPityCount(pairConfirmData.partnerPet.owner, pairConfirmData.bagType) }} 次)
+                            </label>
+                            <label v-if="pairConfirmData.partnerUseBag" style="cursor:pointer; font-size: 12px; font-weight: bold; color: #f39c12; display:flex; align-items:center; gap: 4px; margin-top: 6px; border-top: 1px dashed #ccc; padding-top: 4px;">
+                                <input type="checkbox" v-model="pairConfirmData.partnerUseGoldenPill">
+                                💊 使用金丹 (不扣/不刷新保底，結果必出 典藏/典藏珍)
                             </label>
                         </div>
                         <div v-if="isExternalPet(pairConfirmData.partnerPet)" style="font-size: 11px; color: #999; margin-top: 10px;">對方為外部資料，不參與保底</div>
@@ -821,7 +834,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycbxQ8tmLLqJVwjPLjlaIw4vG1ubRDVpi43DQJK33TDhFLV7IHiR_Yr1CvRfkE2exN0gyLg/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycbwG9C52zG-4PcXW6Qlezn_Pvh9eetKZL1XllQfg3Nao6YSVsGRB2xOrrlmm_XNpRzMAEw/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -881,15 +894,15 @@
                     rejectedMatchCandidates: [], // 候選被排除原因
                     matchMode: 'recommend', // recommend=找配對；external=找其他人配配；known=我知道配誰
                     showPairConfirmModal: false, // 控制最終配對確認與錦囊選擇彈窗
-                    pairConfirmData: { targetPet: null, partnerPet: null, bagType: 'none', targetUseBag: false, partnerUseBag: false },
+                    // 👇 修改成這樣 👇
+                    pairConfirmData: { targetPet: null, partnerPet: null, bagType: 'none', targetUseBag: false, partnerUseBag: false, targetUseGoldenPill: false, partnerUseGoldenPill: false },
                     isTargetAnalysisExpanded: false, // sticky 我方寵物的遺傳分析展開狀態
                     expandedMatchAnalysis: {}, // { petId: true }：候選卡遺傳分析展開狀態
                     // --- 子嗣結果彈窗狀態 ---
                     showResultModal: false,
                     isResultSubmitting: false, // 登記結果按鈕防連點鎖定
                     resultTarget: { item: null, side: '', sideName: '' }, // 目前登記的是繁育配對哪一側
-                    singleChild: { name: '', type: 'good', gender: '', tags: [] }, // 子嗣登記表單
-
+                    singleChild: { name: '', type: 'good', gender: '', tags: [], useGoldenPill: false }, // 子嗣登記表單
                     // --- 手動登記表單 ---
                     formSpecies: '', // 選擇物種後，決定可勾選的詞條分類
                     form: { owner: '', name: '', type: 'good', gender: '公', selectedTags: [], source: 'wild', analyze: false },
@@ -948,6 +961,13 @@
                         const tagMatch = this.selectedFilterTags.length === 0 || this.selectedFilterTags.every(ft => (p.tags || []).some(raw => this.tagMatches(raw, ft, '', this.getSpeciesOfPet(p))));
                         return tabMatch && ownerMatch && speciesMatch && rarityMatch && tagMatch;
                     }).sort((a,b) => this.getEmbryoScore(b) - this.getEmbryoScore(a));
+                },
+                canUseGoldenPill() {
+                    if (!this.resultTarget || !this.resultTarget.item) return false;
+                    const item = this.resultTarget.item;
+                    const side = this.resultTarget.side;
+                    const bagUsed = side === 'pA' ? item.pABag : item.pBBag;
+                    return bagUsed === 'normal' || bagUsed === 'rare'; 
                 },
                 // 只渲染目前需要看的前 N 張卡片；排序結果仍保留完整數量供「顯示更多」使用。
                 visibleSortedPets() {
@@ -1597,7 +1617,7 @@
                         // 舊版 Refresh weeklyUsed::owner 仍保留 fallback，避免舊資料在未遷移前看不到。
                         this.weeklyUsageMap = { ...(data.ownerWeeklyCountMap || {}) };
                         this.records = (data.records || []).map(r => ({ ...r, tags: this.parseTags(r.tags) }));
-                        this.breedingQueue = (data.breeding || []).map(b => ({ ...b, remainingTime: Math.max(0, Number(b.end) - Date.now()), pADone: b.pADone === true || b.pADone === "TRUE", pBDone: b.pBDone === true || b.pBDone === "TRUE", pABag: b.pABag || '', pBBag: b.pBBag || '' }));
+                        this.breedingQueue = (data.breeding || []).map(b => ({ ...b, remainingTime: Math.max(0, Number(b.end) - Date.now()), pADone: b.pADone === true || b.pADone === "TRUE", pBDone: b.pBDone === true || b.pBDone === "TRUE", pABag: b.pABag || '', pBBag: b.pBBag || '', pAGoldenPill: b.pAGoldenPill === true || String(b.pAGoldenPill).toUpperCase() === 'TRUE',pBGoldenPill: b.pBGoldenPill === true || String(b.pBGoldenPill).toUpperCase() === 'TRUE' }));
 
                         // 讀取 Refresh tab。GAS 可回傳物件或 key/value 陣列，前端會統一轉成 refreshMap。
                         this.upsertRefreshLocal(this.normalizeRefreshMap(data.refresh));
@@ -1688,7 +1708,9 @@
                             pADone: b.pADone === true || String(b.pADone).toUpperCase() === 'TRUE',
                             pBDone: b.pBDone === true || String(b.pBDone).toUpperCase() === 'TRUE',
                             pABag: b.pABag || '',
-                            pBBag: b.pBBag || '' 
+                            pBBag: b.pBBag || '',
+                            pAGoldenPill: b.pAGoldenPill === true || String(b.pAGoldenPill).toUpperCase() === 'TRUE',
+                            pBGoldenPill: b.pBGoldenPill === true || String(b.pBGoldenPill).toUpperCase() === 'TRUE' 
                         }));
                         return true;
                     } catch (e) {
@@ -1819,6 +1841,34 @@
                     return { species: '', category: '', name: value, raw: value, encoded: false };
                 },
                 displayTagName(raw) { return this.splitStoredTag(raw).name; },
+                // 將新格式與舊格式詞條統一成可比對的標準 key。
+                // 新格式：物種::分類::詞條名；舊格式：詞條名。
+                // 這些工具讓舊資料繼續可用，也讓之後遺傳分析 / 配對推薦避免直接用 includes() 誤判。
+                getCanonicalTagKey(raw, species = '', category = '') {
+                    const info = this.splitStoredTag(raw);
+                    if (!info.name || String(info.name).startsWith('無')) return this.normalizeKey(info.name || raw);
+                    const meta = this.findTagMeta ? this.findTagMeta(raw, species) : null;
+                    if (meta) return this.makeStoredTag(meta.category, meta.name, meta.species);
+                    if (info.encoded) return this.makeStoredTag(info.category || category, info.name, info.species || species);
+                    return this.normalizeKey(info.name);
+                },
+                getTagComparableKeys(raw, species = '') {
+                    const keys = [];
+                    const add = v => { const k = this.normalizeKey(v); if (k && !keys.includes(k)) keys.push(k); };
+                    const info = this.splitStoredTag(raw);
+                    add(raw);
+                    add(info.name);
+                    add(this.getCanonicalTagKey(raw, species));
+                    const meta = this.findTagMeta ? this.findTagMeta(raw, species) : null;
+                    if (meta) {
+                        add(this.makeStoredTag(meta.category, meta.name, meta.species));
+                        add(`${meta.species}||${meta.category}||${meta.name}`);
+                    }
+                    return keys;
+                },
+                tagListHas(list, target, category = '', species = '') {
+                    return (list || []).some(raw => this.tagMatches(raw, target, category, species));
+                },
                 makeStoredTag(category, name, species = '') {
                     const cleanSpecies = this.normalizeKey(species);
                     const cleanName = this.normalizeKey(name);
@@ -1883,13 +1933,10 @@
                         return true;
                     });
                 },
-                toSet(arr) {
+                toSet(arr, species = '') {
                     const out = {};
                     (arr || []).forEach(x => {
-                        const k = this.normalizeKey(x);
-                        const plain = this.normalizeKey(this.displayTagName(x));
-                        if (k) out[k] = true;
-                        if (plain) out[plain] = true;
+                        this.getTagComparableKeys(x, species).forEach(k => out[k] = true);
                     });
                     return out;
                 },
@@ -2058,8 +2105,8 @@
                         const empirical = this.getEmpiricalCategoryStats(species, cat, candidates, father, mother, ownerContext);
 
                         let rows = candidates.map(tag => {
-                            const inFather = !!fatherSet[tag.name];
-                            const inMother = !!motherSet[tag.name];
+                            const inFather = this.tagListHas(father.tags || [], tag.name, cat, species);
+                            const inMother = this.tagListHas(mother.tags || [], tag.name, cat, species);
                             const w = empirical.useEmpirical
                                 ? this.safeNum(empirical.probByTag[tag.name], 0) * 100
                                 : this.getBaseWeight(tag, inFather, inMother);
@@ -2155,6 +2202,8 @@
                 inferSpeciesFromTags(tags) {
                     const scores = {};
                     (tags || []).forEach(tagName => {
+                        const info = this.splitStoredTag(tagName);
+                        if (info.species) scores[this.normalizeKey(info.species)] = (scores[this.normalizeKey(info.species)] || 0) + 120;
                         const keyName = this.normalizeKey(this.displayTagName(tagName));
                         this.tags
                             .filter(t => this.normalizeKey(t.name) === keyName)
@@ -2218,7 +2267,7 @@
                     (desiredTags || []).forEach(tagName => {
                         const meta = this.findTagMeta(tagName, species);
                         const cat = this.normalizeKey(meta ? meta.category : '');
-                        const normalizedTag = this.normalizeKey(tagName);
+                        const normalizedTag = this.getCanonicalTagKey(tagName, species, cat);
                         if (!cat) return;
                         if (!selectedByCategory[cat]) selectedByCategory[cat] = [];
                         selectedByCategory[cat].push(normalizedTag);
@@ -2249,8 +2298,8 @@
                     const selectedByCategory = this.getDesiredTagsByCategory(desiredTags, species);
                     const categories = Object.keys(selectedByCategory);
                     const normalizedDesiredTags = this.unique(desiredTags || []);
-                    const combined = this.toSet([...(targetPet.tags || []), ...(candidatePet.tags || [])]);
-                    const missingCategories = categories.filter(cat => !selectedByCategory[cat].some(tag => !!combined[tag]));
+                    const combinedTags = [...(targetPet.tags || []), ...(candidatePet.tags || [])];
+                    const missingCategories = categories.filter(cat => !selectedByCategory[cat].some(tag => this.tagListHas(combinedTags, tag, cat, species)));
                     const sharedPass = categories.length > 0 && missingCategories.length === 0;
                     const missingDetails = missingCategories.map(cat => {
                         const selected = selectedByCategory[cat] || [];
@@ -2258,7 +2307,7 @@
                             const meta = this.findTagMeta(tagName, species);
                             return meta && meta.category === cat;
                         });
-                        return `${cat}（目標: ${selected.join('、') || '無'} / 聯集: ${owned.join('、') || '無'}）`;
+                        return `${cat}（目標: ${selected.map(this.displayTagName).join('、') || '無'} / 聯集: ${owned.map(this.displayTagName).join('、') || '無'}）`;
                     });
 
                     if (targetPet && (targetPet.type === 'normal' || targetPet.type === 'good') && desiredTags.length) {
@@ -2283,8 +2332,8 @@
                     const selectedByCategory = this.getDesiredTagsByCategory(desiredTags, species);
                     const categories = Object.keys(selectedByCategory);
                     if (!categories.length) return false;
-                    const combined = this.toSet([...(targetPet.tags || []), ...(candidatePet.tags || [])]);
-                    return categories.every(cat => selectedByCategory[cat].some(tag => !!combined[tag]));
+                    const combinedTags = [...(targetPet.tags || []), ...(candidatePet.tags || [])];
+                    return categories.every(cat => selectedByCategory[cat].some(tag => this.tagListHas(combinedTags, tag, cat, species)));
                 },
                 isNormalTargetSatisfiedByCombinedTags(targetPet, candidatePet, desiredTags) {
                     if (!desiredTags || !desiredTags.length) return false;
@@ -2293,15 +2342,16 @@
                     const categories = Object.keys(selectedByCategory);
                     if (!categories.length) return false;
 
-                    const combined = this.toSet([...(targetPet.tags || []), ...(candidatePet.tags || [])]);
-                    return categories.every(cat => selectedByCategory[cat].some(tag => !!combined[tag]));
+                    const combinedTags = [...(targetPet.tags || []), ...(candidatePet.tags || [])];
+                    return categories.every(cat => selectedByCategory[cat].some(tag => this.tagListHas(combinedTags, tag, cat, species)));
                 },
                 calculatePairScore(parentA, parentB, desiredTags = []) {
                     const ownerContext = String(parentA.owner || parentB.owner || '');
                     const inh = this.calculateInheritance(parentA, parentB, ownerContext);
-                    const desired = this.toSet(desiredTags);
-                    const aSet = this.toSet(parentA.tags || []);
-                    const bSet = this.toSet(parentB.tags || []);
+                    const species = this.getSpeciesOfPet(parentA) || this.getSpeciesOfPet(parentB);
+                    const desired = this.toSet(desiredTags, species);
+                    const aSet = this.toSet(parentA.tags || [], species);
+                    const bSet = this.toSet(parentB.tags || [], species);
 
                     let total = 0;
                     const duplicated = [];
@@ -2309,13 +2359,14 @@
 
                     this.flattenInheritance(inh).forEach(g => {
                         let factor = 1;
-                        if (desired[g.name]) {
+                        const gKey = this.makeStoredTag(g.category || '', g.name, species || '');
+                        if (desired[g.name] || desired[gKey]) {
                             factor *= 2.0;
-                            matched.push(g.name);
+                            matched.push(gKey || g.name);
                         }
-                        if (aSet[g.name] && bSet[g.name]) {
+                        if ((aSet[g.name] || aSet[gKey]) && (bSet[g.name] || bSet[gKey])) {
                             factor *= 1.2;
-                            duplicated.push(g.name);
+                            duplicated.push(gKey || g.name);
                         }
                         total += (this.safeNum(g.prob, 0) / 100) * this.getTagValue(g.name) * factor;
                     });
@@ -2763,7 +2814,10 @@
                         const predictedTopTags = this.getParentUnionPreview(scoreResult.inheritance, this.matchingTarget, p);
                         const tagProbMap = {};
                         flat.forEach(x => {
-                            tagProbMap[x.name] = this.round2(x.prob);
+                            const p = this.round2(x.prob);
+                            tagProbMap[x.name] = p;
+                            tagProbMap[this.displayTagName(x.name)] = p;
+                            tagProbMap[this.makeStoredTag(x.category || '', x.name, pool.species || '')] = p;
                         });
 
                         const outcome = this.explainMatchOutcome(this.matchingTarget, p, this.desiredTags, scoreResult);
@@ -2801,7 +2855,9 @@
                 },
                 getMatchTagProb(res, tagName) {
                     if (!res || !res.tagProbMap) return 0;
-                    return Math.round(this.safeNum(res.tagProbMap[tagName], 0));
+                    const key = this.normalizeKey(tagName);
+                    const plain = this.normalizeKey(this.displayTagName(tagName));
+                    return Math.round(this.safeNum(res.tagProbMap[key] ?? res.tagProbMap[plain], 0));
                 },
                 toggleMatchAnalysis(petId) {
                     const key = String(petId || '');
@@ -3198,31 +3254,39 @@
 
                         if (usedBagType) {
                             const owner = p.owner;
-                            let currentPity = this.getPityCount(owner, usedBagType);
+                            const usedGoldenPill = side === 'pA' ? currentItem.pAGoldenPill : currentItem.pBGoldenPill;
+                            if (usedGoldenPill) {
+                                // 驗證：如果用了金丹，生出來的必須是典藏或典藏珍
+                                if (derivedRarity !== '典藏' && derivedRarity !== '典藏珍' && this.singleChild.type !== 'none') {
+                                    this.isLoading = false;
+                                    this.isResultSubmitting = false;
+                                    return alert("⚠️ 當時使用了金丹，子嗣必須為「典藏」或「典藏珍」！請重新檢查詞條。");
+                                }
+                                // 若使用金丹，直接跳過下方扣除與刷新保底的邏輯！
+                            } else {
+                                // 原本的保底邏輯
+                                let currentPity = this.getPityCount(owner, usedBagType);
 
-                            if (usedBagType === 'rare') {
-                                // 產出為典藏珍 且 不是無子嗣，刷新回 60
-                                if (derivedRarity === '典藏珍' && this.singleChild.type !== 'none') currentPity = 60;
-                                else currentPity = Math.max(0, currentPity - 1);
-                            } else if (usedBagType === 'normal') {
-                                // 產出為典藏 且 不是無子嗣，刷新回 20
-                                if (derivedRarity === '典藏' && this.singleChild.type !== 'none') currentPity = 20;
-                                else currentPity = Math.max(0, currentPity - 1);
+                                if (usedBagType === 'rare') {
+                                    if (derivedRarity === '典藏珍' && this.singleChild.type !== 'none') currentPity = 60;
+                                    else currentPity = Math.max(0, currentPity - 1);
+                                } else if (usedBagType === 'normal') {
+                                    if (derivedRarity === '典藏' && this.singleChild.type !== 'none') currentPity = 20;
+                                    else currentPity = Math.max(0, currentPity - 1);
+                                }
+
+                                if (!this.pityMap[owner]) this.pityMap[owner] = {};
+                                this.pityMap[owner][usedBagType] = currentPity;
+
+                                if (!payload.updateOwnerPity) payload.updateOwnerPity = [];
+                                let ownerUpdate = payload.updateOwnerPity.find(u => u.ownerName === owner);
+                                if (!ownerUpdate) {
+                                    ownerUpdate = { ownerName: owner };
+                                    payload.updateOwnerPity.push(ownerUpdate);
+                                }
+                                if (usedBagType === 'rare') ownerUpdate.pityRare = currentPity;
+                                else ownerUpdate.pityNormal = currentPity;
                             }
-
-                            // 1. 更新本地畫面
-                            if (!this.pityMap[owner]) this.pityMap[owner] = {};
-                            this.pityMap[owner][usedBagType] = currentPity;
-
-                            // 2. 準備 payload 送給 GAS
-                            if (!payload.updateOwnerPity) payload.updateOwnerPity = [];
-                            let ownerUpdate = payload.updateOwnerPity.find(u => u.ownerName === owner);
-                            if (!ownerUpdate) {
-                                ownerUpdate = { ownerName: owner };
-                                payload.updateOwnerPity.push(ownerUpdate);
-                            }
-                            if (usedBagType === 'rare') ownerUpdate.pityRare = currentPity;
-                            else ownerUpdate.pityNormal = currentPity;
                         }
 
                         // 4. 雙親歸位。不扣 remaining，因為進入繁育中時已扣除。
@@ -3291,14 +3355,15 @@
                     
                     this.pairConfirmData = {
                         targetPet, partnerPet, bagType,
-                        targetUseBag: false, partnerUseBag: false
+                        targetUseBag: false, partnerUseBag: false, targetUseGoldenPill: false, partnerUseGoldenPill: false
                     };
                     this.showPairConfirmModal = true;
                 },
                 // 實際寫入繁育佇列並發送至 GAS
                 // 實際寫入繁育佇列並發送至 GAS
                 executePairing() {
-                    const { targetPet, partnerPet, bagType, targetUseBag, partnerUseBag } = this.pairConfirmData;
+                    const { targetPet, partnerPet, bagType, targetUseBag, partnerUseBag, targetUseGoldenPill, partnerUseGoldenPill } = this.pairConfirmData;
+                    
                     if (!this.confirmIfSyncStale('確認配對並進入繁育')) return;
                     const now = Date.now();
                     const breedingId = now.toString();
@@ -3316,7 +3381,9 @@
                         cross: targetPet.owner !== partnerPet.owner,
                         pADone: false, pBDone: false,
                         pABag: (targetUseBag && bagType !== 'none') ? bagType : '',
-                        pBBag: (partnerUseBag && bagType !== 'none' && !this.isExternalPet(partnerPet)) ? bagType : ''
+                        pBBag: (partnerUseBag && bagType !== 'none' && !this.isExternalPet(partnerPet)) ? bagType : '',
+                        pAGoldenPill: (targetUseBag && targetUseGoldenPill) ? true : false,
+                        pBGoldenPill: (partnerUseBag && partnerUseGoldenPill) ? true : false
                     };
 
                     this.markPetBreeding(targetPet);
@@ -3349,7 +3416,7 @@
                 openSingleResultModal(item, side) {
                     const p = this.getPet(item[side]);
                     this.resultTarget = { item, side, sideName: p.name };
-                    this.singleChild = { name: '', type: 'good', gender: '', tags: [] };
+                    this.singleChild = { name: '', type: 'good', gender: '', tags: [], useGoldenPill: false };
                     this.isResultSubmitting = false;
                     this.showResultModal = true;
                 },
@@ -3494,6 +3561,62 @@
                         return Number(this.pityMap[owner][type]);
                     }
                     return type === 'rare' ? 60 : 20; // 預設初始值
+                },
+                async executeInterrupt(item, clickedSide) {
+                    if (this.isLoading) return;
+                    
+                    const petA = this.getPet(item.pA);
+                    const petB = this.getPet(item.pB);
+                    
+                    // 點擊方 = 中斷方 (扣次數)；另一方 = 被中斷方 (還次數)
+                    const interrupterPet = clickedSide === 'pA' ? petA : petB;
+                    const interruptedPet = clickedSide === 'pA' ? petB : petA;
+
+                    // 1. 跳出確認視窗
+                    const msg = `確定要由【${interrupterPet.owner}】中斷此繁育嗎？\n\n⚠️ 中斷方 (${interrupterPet.owner})：將失去本次繁育次數。\n🎁 被中斷方 (${interruptedPet.owner})：將返還本次繁育次數。`;
+                    if (!confirm(msg)) return;
+
+                    this.isLoading = true;
+                    this.syncMessage = '處理中斷繁育中...';
+
+                    const payload = { upsertPets: [], deletePets: [], deleteBreeding: [item.id], updateOwnerWeeklyCount: [] };
+
+                    // 2. 處理【被中斷方】(返還次數)
+                    if (this.isTempExternalPet(interruptedPet)) {
+                        payload.deletePets.push(interruptedPet.id);
+                    } else {
+                        interruptedPet.status = 'active';
+                        // 利用既有函數返還 1 次 (會防呆不超過稀有度上限)
+                        this.refundRemainingFromCancelledBreeding(interruptedPet); 
+                        payload.upsertPets.push(interruptedPet);
+                        
+                        // 返還了次數，所以本週消耗要減 1
+                        const usageUpdates = this.adjustWeeklyUsageLocal([interruptedPet.owner], -1);
+                        payload.updateOwnerWeeklyCount.push(...usageUpdates);
+                    }
+
+                    // 3. 處理【中斷方】(不返還次數，直接歸位)
+                    if (this.isTempExternalPet(interrupterPet)) {
+                        payload.deletePets.push(interrupterPet.id);
+                    } else {
+                        interrupterPet.status = this.isExternalPet(interrupterPet) ? 'hidden' : 'active';
+                        payload.upsertPets.push(interrupterPet);
+                    }
+
+                    // 4. 更新前端畫面
+                    this.breedingQueue = this.breedingQueue.filter(x => x.id != item.id);
+                    if (payload.deletePets.length) {
+                        const delSet = new Set(payload.deletePets.map(String));
+                        this.pets = this.pets.filter(p => !delSet.has(String(p.id)));
+                        this.invalidatePerformanceCaches();
+                    }
+
+                    // 5. 背景寫入 GAS
+                    await this.sendBatch(payload, '中斷繁育同步中');
+                    
+                    this.isLoading = false;
+                    this.syncMessage = '';
+                    alert(`✅ 已成功中斷繁育！\n【中斷方】${interrupterPet.owner} 已扣除次數。\n【被中斷方】${interruptedPet.owner} 已返還次數。`);
                 },
                 // 手動校正保底次數
                 async editPityCount(owner) {
