@@ -147,9 +147,17 @@
                         <option value="ALL">所有物種</option>
                         <option v-for="s in speciesList" :value="s">{{s}}</option>
                     </select>
+                    <select v-if="filterSpecies === '福寶寶'" v-model="filterAnimalForm">
+                        <option value="ALL">所有福寶寶型態</option>
+                        <option v-for="a in fubaoAnimalFormOptions" :key="a" :value="a">{{ a }}</option>
+                    </select>
                     <select v-model="filterRarity">
                         <option value="ALL">所有稀有度</option>
                         <option v-for="r in ['普通','典藏','典藏珍']" :value="r">{{r}}</option>
+                    </select>
+                    <select v-model="filterTagMatchMode">
+                        <option value="all">詞條：同時符合</option>
+                        <option value="any">詞條：符合任一</option>
                     </select>
                     <!-- 👉 新增：展開/收起按鈕 -->
                     <button @click="isFilterExpanded = !isFilterExpanded" style="font-size:12px; padding: 6px 12px; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: bold;">
@@ -164,13 +172,18 @@
                 
                 <!-- 👉 新增：利用 v-show 控制這整個區塊的顯示與隱藏 -->
                 <div v-show="isFilterExpanded" style="border-top: 1px dashed #ccc; padding-top: 10px;">
-                    <strong>🏷️ 詞條多重篩選 <span style="font-size: 11px; color: #666;">(勾選越多越嚴格，需同時符合)</span>：</strong>
+                    <strong>
+                        🏷️ 詞條多重篩選
+                        <span style="font-size: 11px; color: #666;">
+                            （目前：{{ filterTagMatchMode === 'all' ? '同時符合' : '符合任一' }}）
+                        </span>：
+                    </strong>
                     <div v-for="(group, cat) in visibleFilterTagsByCategory" :key="cat" style="margin-top: 8px; display: flex; align-items: flex-start;">
                         <span class="reg-category-title" style="min-width: 50px; text-align: center; margin-right: 10px;">{{ cat }}</span>
                         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
                             <label v-for="tag in group" :key="tag.name" style="font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
                                 <input type="checkbox" :value="makeStoredTag(cat, tag.name, tag.species)" v-model="selectedFilterTags">
-                                <span class="tag-pill" :style="{...getTagStyle(tag.name, tag), fontSize:'10px', padding:'4px 8px', margin: 0}">{{ tag.name }}</span>
+                                <span class="tag-pill" :style="{...getTagStyle(tag.name, tag), fontSize:'10px', padding:'4px 8px', margin: 0}">{{ displayTagOptionName(tag) }}</span>
                             </label>
                         </div>
                     </div>
@@ -182,17 +195,21 @@
                 <strong style="color:var(--success);">➕ 手動登記新成員</strong>
                 <div class="input-group" style="margin-top:10px;">
                     <select v-model="formSpecies"><option value="">選擇物種 (Species)</option><option v-for="s in speciesList" :value="s">{{s}}</option></select>
+                    <select v-if="formSpecies === '福寶寶'" v-model="formAnimalForm" @change="form.selectedTags = removeTagsInCategory(form.selectedTags, '種類', formSpecies)">
+                    <option value="">選擇福寶寶型態</option>
+                    <option v-for="a in fubaoAnimalFormOptions" :key="a" :value="a">{{ a }}</option>
+                </select>
                     <select v-model="form.owner"><option value="">持有者</option><option v-for="o in ownerList" :value="o">{{o}}</option></select>
                     <input v-model="form.name" placeholder="名稱">
                     <select v-model="form.type"><option v-for="t in ['good','normal','bad']" :value="t">{{ t === 'good' ? '❤️ 好胚' : t === 'normal' ? '🩵 普普' : '🖤 爛爛' }}</option></select>
                     <select v-model="form.gender"><option value="公">♂️ 公</option><option value="母">♀️ 母</option></select>
                     <select v-model="form.source"><option value="wild">野外/其他</option><option value="breed">繁育/子嗣</option></select>
                 </div>
-                <div v-if="formSpecies" v-for="(group, cat) in groupedTagsBySpecies(formSpecies)" :key="cat" class="category-block">
+                <div v-if="formSpecies" v-for="(group, cat) in groupedTagsForAnimalForm(formSpecies, formAnimalForm)" :key="cat" class="category-block">
                     <span class="reg-category-title">{{ cat }}</span>
                     <label v-for="tag in group" :key="tag.name" style="margin-right:15px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
                         <input type="checkbox" :checked="hasSelectedTag(form.selectedTags, cat, tag.name, formSpecies)" @change="toggleFormTag(cat, tag.name)">
-                        <span class="tag-pill" :style="{...getTagStyle(tag.name, tag), fontSize:'10px', padding:'4px 8px'}">{{ tag.name }}</span>
+                        <span class="tag-pill" :style="{...getTagStyle(tag.name, tag), fontSize:'10px', padding:'4px 8px'}">{{ displayTagOptionName(tag) }}</span>
                     </label>
                 </div>
                 <button @click="addPet" style="width:100%; background:var(--success); color:white; margin-top:10px;">✅ 登記存檔</button>
@@ -536,10 +553,9 @@
         </div>
 
         <!-- 結果登記彈窗：analyze 預設為 true -->
-        <div v-if="showResultModal" class="modal" @click.self="showResultModal = false">
-            <div class="card" style="width: 500px; max-height: 85vh; overflow-y: auto;">
-                <div style="display:flex; justify-content:space-between;"><h3>🎉 登記：{{ resultTarget.sideName }}</h3><button @click="showResultModal = false">×</button></div>
-                <div class="category-block">
+            <div v-if="showResultModal" class="modal" @click.self="closeResultModal">
+                <div class="card" style="width: 500px; max-height: 85vh; overflow-y: auto;">
+                    <div style="display:flex; justify-content:space-between;"><h3>🎉 登記：{{ resultTarget.sideName }}</h3><button @click="closeResultModal">×</button></div><div class="category-block">
                     <div style="margin-bottom:10px;">
                         分類：<select v-model="singleChild.type"><option value="good">❤️ 好胚</option><option value="normal">🩵 普普</option><option value="bad">🖤 爛爛</option></select>
                     </div>
@@ -553,12 +569,21 @@
                     </div>
 
                     <div style="margin-top:15px;">
-                        <strong>標籤設定 <span class="required-star">(每類必選)</span></strong>
-                        <div v-for="(group, cat) in groupedTagsWithNone(resultSpecies)" :key="cat" style="margin-top:8px; border-bottom:1px solid #eee; padding-bottom:5px;">
+                    <strong>標籤設定 <span class="required-star">(每類必選)</span></strong>
+
+                    <div v-if="resultSpecies === '福寶寶'" style="margin-top:10px;">
+                        福寶寶型態：<span class="required-star">*</span><br>
+                        <select v-model="singleChildAnimalForm" @change="singleChild.tags = removeTagsInCategory(singleChild.tags, '種類', resultSpecies)">
+                            <option value="">請選擇福寶寶型態</option>
+                            <option v-for="a in fubaoAnimalFormOptions" :key="a" :value="a">{{ a }}</option>
+                        </select>
+                    </div>
+
+                    <div v-for="(group, cat) in groupedTagsWithNoneByAnimalForm(resultSpecies, singleChildAnimalForm)" :key="cat" style="margin-top:8px; border-bottom:1px solid #eee; padding-bottom:5px;">
                             <span class="reg-category-title">{{ cat }}</span>
                             <label v-for="tag in group" :key="tag.name" style="margin-right:8px; font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
                                 <input type="checkbox" :checked="hasSelectedTag(singleChild.tags, cat, tag.name, resultSpecies)" @change="toggleSingleChildTag(cat, tag.name)">
-                                <span class="tag-pill" :style="{...getTagStyle(tag.name, tag), fontSize:'10px', padding:'4px 8px'}">{{ tag.name }}</span>
+                                <span class="tag-pill" :style="{...getTagStyle(tag.name, tag), fontSize:'10px', padding:'4px 8px'}">{{ displayTagOptionName(tag) }}</span>
                             </label>
                         </div>
                     </div>
@@ -626,6 +651,21 @@
                 <!-- 模式 A：找配對。使用者勾選理想目標標籤，由系統推薦候選。 -->
                 <div v-if="matchMode === 'recommend'" class="category-block">
                     <strong>1. 勾選您的理想目標標籤：</strong><br>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; margin-bottom:8px;">
+                        <select v-model="desiredTagMatchMode" :disabled="matchSelectionConfirmed">
+                            <option value="all">目標詞條：同時符合</option>
+                            <option value="any">目標詞條：符合任一</option>
+                        </select>
+
+                        <select
+                            v-if="matchingTarget && getSpeciesOfPet(matchingTarget) === '福寶寶'"
+                            v-model="matchAnimalFormFilter"
+                            :disabled="matchSelectionConfirmed"
+                        >
+                            <option value="ALL">候選型態不限制</option>
+                            <option v-for="a in fubaoAnimalFormOptions" :key="a" :value="a">只看{{ a }}</option>
+                        </select>
+                    </div>
                     <div v-if="matchingTarget" v-for="(group, cat) in groupedTargetTagsBySpecies(getSpeciesOfPet(matchingTarget))" :key="cat" style="margin-top:10px;">
                         <div style="margin-bottom:6px;"><span class="reg-category-title">{{ cat }}</span></div>
                         <label v-for="tag in group" :key="tag.name" style="margin-right:15px; font-size:12px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
@@ -653,14 +693,18 @@
                             <option value="">請選擇對手物種</option>
                             <option v-for="s in speciesList" :key="s" :value="s">{{s}}</option>
                         </select>
+                        <select v-if="otherSpecies === '福寶寶'" v-model="otherAnimalForm" @change="otherSelectedTags = removeTagsInCategory(otherSelectedTags, '種類', otherSpecies)">
+                            <option value="">選擇對方福寶寶型態</option>
+                            <option v-for="a in fubaoAnimalFormOptions" :key="a" :value="a">{{ a }}</option>
+                        </select>
                         <span style="font-size: 12px; color: #666;">(性別自動設為：{{ matchingTarget ? (matchingTarget.gender === '公' ? '♀ 母' : '♂ 公') : '' }})</span>
                     </div>
-                    <div v-if="otherSpecies" v-for="(group, cat) in groupedTagsBySpecies(otherSpecies)" :key="cat" class="category-block">
+                    <div v-if="otherSpecies" v-for="(group, cat) in groupedTagsForAnimalForm(otherSpecies, otherAnimalForm)" :key="cat" class="category-block">
                         <span class="reg-category-title">{{ cat }}</span>
                         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
                             <label v-for="tag in group" :key="tag.name" style="font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
                                 <input type="checkbox" :checked="hasSelectedTag(otherSelectedTags, cat, tag.name, otherSpecies)" @change="toggleOtherTag(cat, tag.name)">
-                                <span class="tag-pill" :style="getTagStyle(tag.name, tag)">{{ tag.name }}</span>
+                                <span class="tag-pill" :style="getTagStyle(tag.name, tag)">{{ displayTagOptionName(tag) }}</span>
                             </label>
                         </div>
                     </div>
@@ -674,6 +718,15 @@
                         <select v-model="knownOwnerFilter">
                             <option value="">請先選擇持有者</option>
                             <option v-for="o in ownerList" :key="o" :value="o">{{ o }}</option>
+                        </select>
+                        <select v-if="matchingTarget && getSpeciesOfPet(matchingTarget) === '福寶寶'" v-model="knownAnimalFormFilter">
+                            <option value="ALL">對方型態不限制</option>
+                            <option v-for="a in fubaoAnimalFormOptions" :key="a" :value="a">只看{{ a }}</option>
+                        </select>
+
+                        <select v-model="knownTagMatchMode">
+                            <option value="all">詞條：同時符合</option>
+                            <option value="any">詞條：符合任一</option>
                         </select>
                         <button @click="isKnownFilterExpanded = !isKnownFilterExpanded" style="font-size:12px; padding: 6px 12px; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: bold;">
                             {{ isKnownFilterExpanded ? '🔼 收起進階詞條' : '🔽 展開進階詞條' }}
@@ -717,7 +770,7 @@
                             </label>
                             <label v-if="pairConfirmData.targetUseBag" style="cursor:pointer; font-size: 12px; font-weight: bold; color: #f39c12; display:flex; align-items:center; gap: 4px; margin-top: 6px; border-top: 1px dashed #ccc; padding-top: 4px;">
                                 <input type="checkbox" v-model="pairConfirmData.targetUseGoldenPill">
-                                💊 使用金丹 (不扣/不刷新保底，結果必出 典藏/典藏珍)
+                                💊 使用金丹
                             </label>
                         </div>
                     </div>
@@ -736,7 +789,7 @@
                             </label>
                             <label v-if="pairConfirmData.partnerUseBag" style="cursor:pointer; font-size: 12px; font-weight: bold; color: #f39c12; display:flex; align-items:center; gap: 4px; margin-top: 6px; border-top: 1px dashed #ccc; padding-top: 4px;">
                                 <input type="checkbox" v-model="pairConfirmData.partnerUseGoldenPill">
-                                💊 使用金丹 (不扣/不刷新保底，結果必出 典藏/典藏珍)
+                                💊 使用金丹
                             </label>
                         </div>
                         <div v-if="isExternalPet(pairConfirmData.partnerPet)" style="font-size: 11px; color: #999; margin-top: 10px;">對方為外部資料，不參與保底</div>
@@ -834,7 +887,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycbwG9C52zG-4PcXW6Qlezn_Pvh9eetKZL1XllQfg3Nao6YSVsGRB2xOrrlmm_XNpRzMAEw/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycbzdW-3KIhL_ySVNmEPfWrxsM6N-OKcvXqM0uPddAl_QL0SoH1nZVhvs0QtitSWSXwo/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -842,7 +895,15 @@
                     isSaving: false,    // 小型背景存檔提示；不阻擋分頁與一般瀏覽。
                     savingMessage: '',  // 小型背景存檔提示文字。
                     filterOwner: 'ALL', filterRarity: 'ALL', selectedFilterTags: [], isFilterExpanded: false, // 主列表篩選條件
-                    filterSpecies: 'ALL', // 新增物種篩選狀態
+                    filterSpecies: 'ALL',
+                    // 主列表：福寶寶兔 / 虎篩選
+                    filterAnimalForm: 'ALL',
+
+                    // 主列表：進階詞條篩選模式
+                    filterTagMatchMode: 'all',
+
+                    // 手動登記：福寶寶型態
+                    formAnimalForm: '', // 新增物種篩選狀態
                     visiblePetLimit: 60, // 主列表分批渲染數量，避免一次建立太多寵物卡造成切頁卡頓。
                     // Refresh tab 讀回來的 key/value 狀態。
                     // lastResetTime 會用台灣時間字串保存，例如 2026-05-04 10:35:22。
@@ -859,11 +920,14 @@
                     // 找其他人配配輸入狀態。保留其他人父母資料供 Records / 遺傳分析追溯。
                     otherSpecies: '',
                     otherSelectedTags: [],
-
+                    otherAnimalForm: '',
                     // 我知道配誰模式：持有者必選，進階詞條選填。
                     knownOwnerFilter: '',
                     knownSelectedTags: [],
                     isKnownFilterExpanded: false,
+                    knownAnimalFormFilter: 'ALL',
+                    knownTagMatchMode: 'all',
+
                     // --- 核心資料（由 API 讀取） ---
                     pets: [],        // 寵物資料
                     petByIdMap: {},   // { petId: pet } 快取，避免繁育中頁面大量 getPet() 反覆掃描 pets。
@@ -887,7 +951,10 @@
                     showMatchPicker: false,  // 控制配對彈窗顯示
                     matchingTarget: null,    // 目前要找配對的目標寵
                     desiredTags: [],         // 使用者希望子嗣命中的目標詞條
-                    desiredTagsDraft: [],    // 配對視窗編輯中的目標詞條（待確認）
+                    desiredTagsDraft: [],
+                    desiredTagMatchMode: 'all',
+                    matchAnimalFormFilter: 'ALL',
+                    // 配對視窗編輯中的目標詞條（待確認）
                     matchSelectionConfirmed: false, // 目標詞條是否已確認
                     matchResults: [],        // 候選配對清單（已評分與排序）
                     matchDiagnostics: null,  // 配對候選池診斷資訊
@@ -903,6 +970,7 @@
                     isResultSubmitting: false, // 登記結果按鈕防連點鎖定
                     resultTarget: { item: null, side: '', sideName: '' }, // 目前登記的是繁育配對哪一側
                     singleChild: { name: '', type: 'good', gender: '', tags: [], useGoldenPill: false }, // 子嗣登記表單
+                    singleChildAnimalForm: '',
                     // --- 手動登記表單 ---
                     formSpecies: '', // 選擇物種後，決定可勾選的詞條分類
                     form: { owner: '', name: '', type: 'good', gender: '公', selectedTags: [], source: 'wild', analyze: false },
@@ -949,6 +1017,9 @@
                 uniqueAllTags() {
                     return [...new Set(this.tags.map(t => t.name))].sort();
                 },
+                fubaoAnimalFormOptions() {
+                    return this.getAnimalFormOptionsBySpecies('福寶寶');
+                },
                 // 目前分頁顯示的寵物：先篩選再按胚子分數降序。
                 // 注意：正式列表只顯示 official pet；其他人/external/hidden 永遠不出現在好胚與普普頁。
                 sortedPets() {
@@ -957,9 +1028,11 @@
                         const tabMatch = p.type === tMap[this.currentTab] && this.isActiveOfficialPet(p);
                         const ownerMatch = this.filterOwner === 'ALL' || p.owner === this.filterOwner;
                         const speciesMatch = this.filterSpecies === 'ALL' || this.getSpeciesOfPet(p) === this.filterSpecies;
+                        const animalFormMatch = this.filterAnimalForm === 'ALL' || this.hasPetAnimalForm(p, this.filterAnimalForm);
                         const rarityMatch = this.filterRarity === 'ALL' || this.getRarityFromTags(p.tags) === this.filterRarity;
-                        const tagMatch = this.selectedFilterTags.length === 0 || this.selectedFilterTags.every(ft => (p.tags || []).some(raw => this.tagMatches(raw, ft, '', this.getSpeciesOfPet(p))));
-                        return tabMatch && ownerMatch && speciesMatch && rarityMatch && tagMatch;
+                        const tagMatch = this.matchesPetTagFilter(p, this.selectedFilterTags, this.filterTagMatchMode);
+
+                        return tabMatch && ownerMatch && speciesMatch && animalFormMatch && rarityMatch && tagMatch;
                     }).sort((a,b) => this.getEmbryoScore(b) - this.getEmbryoScore(a));
                 },
                 canUseGoldenPill() {
@@ -981,10 +1054,21 @@
                     const grouped = {};
                     this.tags
                         .filter(t => this.filterSpecies === 'ALL' || this.normalizeKey(t.species) === this.normalizeKey(this.filterSpecies))
+                        .filter(t => {
+                            if (this.filterSpecies !== '福寶寶') return true;
+                            if (this.filterAnimalForm === 'ALL') return true;
+                            if (!this.isTypeCategory(t.category)) return true;
+                            return this.getTagAnimalForm(t) === this.normalizeKey(this.filterAnimalForm);
+                        })
                         .forEach(t => {
                             const cat = t.category || '未分類';
                             if (!grouped[cat]) grouped[cat] = [];
-                            if (!grouped[cat].some(x => x.name === t.name)) grouped[cat].push(t);
+
+                            const sameKey = x =>
+                                x.name === t.name &&
+                                this.getTagAnimalForm(x) === this.getTagAnimalForm(t);
+
+                            if (!grouped[cat].some(sameKey)) grouped[cat].push(t);
                         });
                     return grouped;
                 },
@@ -1007,7 +1091,8 @@
                         if (!this.isBreedablePet(p)) return false;
                         if (p.gender === this.matchingTarget.gender || !p.gender) return false;
                         if (species && this.getSpeciesOfPet(p) !== species) return false;
-                        if (this.knownSelectedTags.length && !this.knownSelectedTags.every(t => (p.tags || []).some(raw => this.tagMatches(raw, t, '', this.getSpeciesOfPet(p))))) return false;
+                        if (this.knownAnimalFormFilter !== 'ALL' && !this.hasPetAnimalForm(p, this.knownAnimalFormFilter)) return false;
+                        if (!this.matchesPetTagFilter(p, this.knownSelectedTags, this.knownTagMatchMode)) return false;
                         return true;
                     }).sort((a,b) => this.getEmbryoScore(b) - this.getEmbryoScore(a));
                 },
@@ -1142,6 +1227,11 @@
                 // 當基本物種篩選改變時，清掉不屬於目前物種的進階詞條，避免隱形條件殘留。
                 filterSpecies() {
                     this.resetVisiblePetLimit();
+
+                    if (this.filterSpecies !== '福寶寶') {
+                        this.filterAnimalForm = 'ALL';
+                    }
+
                     if (this.filterSpecies === 'ALL') return;
                     const allowed = new Set();
                     this.tags
@@ -1154,6 +1244,8 @@
                 },
                 filterOwner() { this.resetVisiblePetLimit(); },
                 filterRarity() { this.resetVisiblePetLimit(); },
+                filterAnimalForm() { this.resetVisiblePetLimit(); },
+                filterTagMatchMode() { this.resetVisiblePetLimit(); },
                 selectedFilterTags() { this.resetVisiblePetLimit(); },
                 currentTab(newTab, oldTab) {
                     if ((newTab === 'main' || newTab === 'pu') && newTab !== oldTab) this.resetVisiblePetLimit();
@@ -1161,6 +1253,7 @@
                 // 找其他人配配切換物種時，重新清空對方標籤，讓種類由使用者主動勾選。
                 otherSpecies() {
                     this.otherSelectedTags = [];
+                    this.otherAnimalForm = '';
                 },
                 // 單體明細切換物種時，清掉不屬於目前物種的高階詞條，避免隱形條件殘留。
                 detailFilterSpecies() {
@@ -1428,6 +1521,11 @@
                     this.isKnownFilterExpanded = false;
                     this.otherSpecies = '';
                     this.otherSelectedTags = [];
+                    this.desiredTagMatchMode = 'all';
+                    this.matchAnimalFormFilter = 'ALL';
+                    this.knownAnimalFormFilter = 'ALL';
+                    this.knownTagMatchMode = 'all';
+                    this.otherAnimalForm = '';
                 },
                 // ============================================================
                 // V12 效能快取工具
@@ -1583,6 +1681,7 @@
                             category: String(t.category || '').trim(),
                             category_rank: this.safeNum(t.category_rank, 999),
                             name: String(t.name || '').trim(),
+                            animal_form: String(t.animal_form ?? t.animalForm ?? t.AnimalForm ?? t.動物型態 ?? t.動物種類 ?? '').trim(),
                             color: t.color || '#3c3c3c',
                             subjective_rank: this.safeNum(t.subjective_rank ?? t.subject_rank, 1),
                             color_rank: String(t.color_rank || '').toUpperCase() === 'NA' ? 'NA' : (t.color_rank !== undefined && t.color_rank !== '' ? Number(t.color_rank) : 3),
@@ -1799,6 +1898,12 @@
                         return !!meta && meta.category === '種類';
                     });
                     if (!hasTypeTag) return alert("請至少勾選對方的種類標籤！");
+                    if (this.otherSpecies === '福寶寶') {
+                    if (!this.otherAnimalForm) return alert("請選擇對方福寶寶型態：兔 / 虎。");
+                    if (!this.hasSelectedAnimalFormType(this.otherSelectedTags, this.otherSpecies, this.otherAnimalForm)) {
+                        return alert("請勾選對應型態的種類詞條。");
+                    }
+                }
                     const tempOther = this.createExternalParentPet();
                     // 不先寫入 pets。若使用者在確認視窗取消，就不留下任何 temp_ external 暫存資料。
                     // confirmPairing() 會在使用者確認後才把 external 資料加入 pets 並送到 GAS。
@@ -1868,6 +1973,113 @@
                 },
                 tagListHas(list, target, category = '', species = '') {
                     return (list || []).some(raw => this.tagMatches(raw, target, category, species));
+                },
+                getTagAnimalForm(tag) {
+                    return this.normalizeKey(
+                        tag?.animal_form ??
+                        tag?.animalForm ??
+                        tag?.AnimalForm ??
+                        tag?.動物型態 ??
+                        tag?.動物種類 ??
+                        ''
+                    );
+                },
+
+                isFubaoSpecies(species) {
+                    return this.normalizeKey(species) === '福寶寶';
+                },
+
+                isTypeCategory(category) {
+                    return this.normalizeKey(category) === '種類';
+                },
+
+                getAnimalFormOptionsBySpecies(species) {
+                    const keySpecies = this.normalizeKey(species);
+                    return [...new Set(
+                        (this.tags || [])
+                            .filter(t =>
+                                this.normalizeKey(t.species) === keySpecies &&
+                                this.isTypeCategory(t.category)
+                            )
+                            .map(t => this.getTagAnimalForm(t))
+                            .filter(Boolean)
+                    )];
+                },
+
+                getTypeTagMetaOfPet(pet) {
+                    const species = this.getSpeciesOfPet(pet);
+                    return (this.tags || []).find(t =>
+                        this.normalizeKey(t.species) === this.normalizeKey(species) &&
+                        this.isTypeCategory(t.category) &&
+                        (pet.tags || []).some(raw => this.tagMatches(raw, t.name, '種類', t.species))
+                    ) || null;
+                },
+
+                getPetAnimalForm(pet) {
+                    const meta = this.getTypeTagMetaOfPet(pet);
+                    return meta ? this.getTagAnimalForm(meta) : '';
+                },
+
+                hasPetAnimalForm(pet, animalForm) {
+                    if (!animalForm || animalForm === 'ALL') return true;
+                    return this.getPetAnimalForm(pet) === this.normalizeKey(animalForm);
+                },
+
+                displayTagOptionName(tag) {
+                    const form = this.getTagAnimalForm(tag);
+                    if (this.isTypeCategory(tag.category) && form) {
+                        return `${tag.name}（${form}）`;
+                    }
+                    return tag.name;
+                },
+
+                groupedTagsForAnimalForm(species, animalForm = 'ALL') {
+                    const g = this.groupedTagsBySpecies(species);
+
+                    if (this.isFubaoSpecies(species) && animalForm && animalForm !== 'ALL' && g['種類']) {
+                        const keyForm = this.normalizeKey(animalForm);
+                        g['種類'] = g['種類'].filter(t => this.getTagAnimalForm(t) === keyForm);
+                    }
+
+                    return g;
+                },
+
+                groupedTagsWithNoneByAnimalForm(species, animalForm = 'ALL') {
+                    const g = this.groupedTagsForAnimalForm(species, animalForm);
+                    Object.keys(g).forEach(cat => {
+                        if (cat !== '種類' && cat !== '瞳色') {
+                            g[cat].push({ name: `無${cat}`, color: '#ccc', category: cat });
+                        }
+                    });
+                    return g;
+                },
+
+                matchesPetTagFilter(pet, selectedTags, mode = 'all') {
+                    const list = selectedTags || [];
+                    if (!list.length) return true;
+
+                    const species = this.getSpeciesOfPet(pet);
+                    const hitCount = list.filter(ft =>
+                        (pet.tags || []).some(raw => this.tagMatches(raw, ft, '', species))
+                    ).length;
+
+                    return mode === 'any'
+                        ? hitCount > 0
+                        : hitCount === list.length;
+                },
+
+                hasSelectedAnimalFormType(selectedTags, species, animalForm) {
+                    if (!this.isFubaoSpecies(species)) return true;
+                    if (!animalForm) return false;
+
+                    const keyForm = this.normalizeKey(animalForm);
+
+                    return (selectedTags || []).some(tagName => {
+                        const meta = this.findTagMeta(tagName, species);
+                        return meta &&
+                            this.isTypeCategory(meta.category) &&
+                            this.getTagAnimalForm(meta) === keyForm;
+                    });
                 },
                 makeStoredTag(category, name, species = '') {
                     const cleanSpecies = this.normalizeKey(species);
@@ -2299,8 +2511,17 @@
                     const categories = Object.keys(selectedByCategory);
                     const normalizedDesiredTags = this.unique(desiredTags || []);
                     const combinedTags = [...(targetPet.tags || []), ...(candidatePet.tags || [])];
-                    const missingCategories = categories.filter(cat => !selectedByCategory[cat].some(tag => this.tagListHas(combinedTags, tag, cat, species)));
-                    const sharedPass = categories.length > 0 && missingCategories.length === 0;
+                    const hitCategories = categories.filter(cat =>
+                        selectedByCategory[cat].some(tag => this.tagListHas(combinedTags, tag, cat, species))
+                    );
+
+                    const missingCategories = categories.filter(cat => !hitCategories.includes(cat));
+
+                    const sharedPass = categories.length > 0 && (
+                        this.desiredTagMatchMode === 'any'
+                            ? hitCategories.length > 0
+                            : missingCategories.length === 0
+                    );
                     const missingDetails = missingCategories.map(cat => {
                         const selected = selectedByCategory[cat] || [];
                         const owned = [...(targetPet.tags || []), ...(candidatePet.tags || [])].filter(tagName => {
@@ -2803,7 +3024,11 @@
                         this.rejectedMatchCandidates = [];
                         return;
                     }
-                    const initialCandidates = pool.sameSpeciesCandidates;
+                    let initialCandidates = pool.sameSpeciesCandidates;
+
+                    if (this.matchAnimalFormFilter !== 'ALL') {
+                        initialCandidates = initialCandidates.filter(p => this.hasPetAnimalForm(p, this.matchAnimalFormFilter));
+                    }
                     const evaluated = initialCandidates.map(p => {
                         const scoreResult = this.calculatePairScore(this.matchingTarget, p, this.desiredTags);
                         const flat = this.flattenInheritance(scoreResult.inheritance).sort((a, b) => b.prob - a.prob);
@@ -2991,6 +3216,8 @@
                     this.matchMode = mode;
                     this.desiredTags = [];
                     this.desiredTagsDraft = [];
+                    this.desiredTagMatchMode = 'all';
+                    this.matchAnimalFormFilter = 'ALL';
                     this.matchSelectionConfirmed = false;
                     this.matchResults = [];
                     this.rejectedMatchCandidates = [];
@@ -2999,6 +3226,8 @@
                     this.knownOwnerFilter = '';
                     this.knownSelectedTags = [];
                     this.isKnownFilterExpanded = false;
+                    this.knownAnimalFormFilter = 'ALL';
+                    this.knownTagMatchMode = 'all';
                     this.otherSpecies = mode === 'external' ? this.getSpeciesOfPet(pet) : '';
                     this.otherSelectedTags = [];
                     const pool = this.getMatchCandidatePool(pet);
@@ -3154,6 +3383,12 @@
                 // 驗證手動登記並新增寵物，剩餘次數依稀有度設定
                 addPet() {
                     if (!this.form.name || !this.formSpecies || !this.form.owner) return alert("請填寫必填資訊！");
+                    if (this.formSpecies === '福寶寶') {
+                    if (!this.formAnimalForm) return alert("請選擇福寶寶型態：兔 / 虎。");
+                    if (!this.hasSelectedAnimalFormType(this.form.selectedTags, this.formSpecies, this.formAnimalForm)) {
+                        return alert("請勾選對應型態的種類詞條。");
+                    }
+                }
                     const resolvedName = this.getAutoIndexedName(this.form.owner, this.form.name, this.form.selectedTags, this.form.gender);
                     const derivedRarity = this.getRarityFromTags(this.form.selectedTags);
                     const newPet = {
@@ -3168,7 +3403,10 @@
                     this.pets.push(newPet);
                     this.invalidatePetCachesOnly();
                     this.sendBatch({ upsertPets: [newPet] }, '新增寵物存檔中'); // 🔴 只傳送新增的這隻寵物給後端
-                    this.form.name = ''; this.form.selectedTags = []; this.form.type = 'good';
+                    this.form.name = '';
+                    this.form.selectedTags = [];
+                    this.form.type = 'good';
+                    this.formAnimalForm = '';
                 },
 
                 // --- 子嗣結果登記 ---
@@ -3191,6 +3429,14 @@
                                 const meta = this.findTagMeta(tagName, this.resultSpecies);
                                 return meta && meta.category === '種類';
                             })) return alert("種類類別必填！");
+
+                            if (this.resultSpecies === '福寶寶') {
+                                if (!this.singleChildAnimalForm) return alert("請選擇福寶寶型態：兔 / 虎。");
+                                if (!this.hasSelectedAnimalFormType(this.singleChild.tags, this.resultSpecies, this.singleChildAnimalForm)) {
+                                    return alert("請勾選對應型態的種類詞條。");
+                                }
+                            }
+
                             const catCount = Object.keys(this.groupedTagsBySpecies(this.resultSpecies)).length;
                             if (this.singleChild.tags.length < catCount) return alert("標籤分類必選！");
                         }
@@ -3203,7 +3449,7 @@
                         const currentItem = this.breedingQueue.find(x => x.id == oldItem.id);
                         if (!currentItem) {
                             alert("此繁育任務已在另一端結束並歸位！");
-                            this.showResultModal = false;
+                            this.closeResultModal();
                             await this.fetchData();
                             return;
                         }
@@ -3307,7 +3553,7 @@
                             payload.upsertBreeding.push(currentItem);
                         }
 
-                        this.showResultModal = false;
+                        this.closeResultModal();
                         await this.sendBatch(payload, '登記結果同步中', { blockUI: true });
                         // 不再完整 fetchData()。本地狀態已同步更新，避免登記結果後再重抓整包資料造成等待過久。
                     } catch (e) {
@@ -3417,8 +3663,14 @@
                     const p = this.getPet(item[side]);
                     this.resultTarget = { item, side, sideName: p.name };
                     this.singleChild = { name: '', type: 'good', gender: '', tags: [], useGoldenPill: false };
+                    this.singleChildAnimalForm = '';
                     this.isResultSubmitting = false;
                     this.showResultModal = true;
+                },
+
+                closeResultModal() {
+                    this.showResultModal = false;
+                    this.singleChildAnimalForm = '';
                 },
                 // 避免重名：自動補二、三、四…尾碼
                 checkAutoName() {
