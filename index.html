@@ -128,6 +128,7 @@
             <button class="tab-btn" :class="{active: currentTab==='main'}" @click="currentTab='main'">❤️ 好胚</button>
             <button class="tab-btn" :class="{active: currentTab==='pu'}" @click="currentTab='pu'">🩵 普普</button>
             <button class="tab-btn" :class="{active: currentTab==='breeding'}" @click="currentTab='breeding'">🥚 繁育中 ({{ breedingQueue.length }})</button>
+            <button class="tab-btn" :class="{active: currentTab==='todayBabies'}" @click="currentTab='todayBabies'">🍼 今日新寶寶</button>
             <button class="tab-btn" :class="{active: currentTab==='analysis'}" @click="currentTab='analysis'">📊 遺傳分析</button>
             <button class="tab-btn" :class="{active: currentTab==='singleDetail'}" @click="currentTab='singleDetail'">🧬 單體明細</button>
             <button class="tab-btn" :class="{active: currentTab==='stats'}" @click="currentTab='stats'">📒 紀錄統計</button>
@@ -332,7 +333,68 @@
                 </div>
             </div>
         </div>
+        <div v-if="currentTab === 'todayBabies'">
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <div>
+                        <h3 style="margin:0;">🍼 今日新寶寶</h3>
+                        <p class="muted-note" style="margin:6px 0 0 0;">
+                            依照 Pets.CreatedAt 的台灣日期自動更新。淺灰底＝手動登記；白底＝繁育結果。
+                        </p>
+                    </div>
+                    <div class="muted-note">
+                        今日共 {{ todayNewBabies.length }} 隻
+                    </div>
+                </div>
 
+                <table class="mini-table" style="margin-top:12px;">
+                    <thead>
+                        <tr>
+                            <th style="width:120px;">持有者</th>
+                            <th style="width:160px;">名稱</th>
+                            <th style="width:70px;">性別</th>
+                            <th>標籤圖示</th>
+                        </tr>
+                    </thead>
+
+                    <tbody v-if="todayNewBabies.length">
+                        <tr v-for="baby in todayNewBabies"
+                            :key="baby.id"
+                            :style="{ background: baby.birthMethod === 'manual' ? '#f1f1f1' : '#ffffff' }">
+                            <td>{{ baby.owner }}</td>
+                            <td>
+                                <strong>{{ baby.name }}</strong>
+                                <div class="muted-note">
+                                    {{ baby.birthMethod === 'manual' ? '手動登記' : '繁育' }}
+                                    <span v-if="baby.createdAt">｜{{ baby.createdAt }}</span>
+                                </div>
+                            </td>
+                            <td>
+                                <span :class="baby.gender === '公' ? 'gender-m' : 'gender-f'">
+                                    {{ baby.gender === '公' ? '♂ 公' : (baby.gender === '母' ? '♀ 母' : baby.gender || '未知') }}
+                                </span>
+                            </td>
+                            <td>
+                                <span v-for="t in baby.tags"
+                                    :key="baby.id + '_' + t"
+                                    class="tag-pill"
+                                    :style="{...getTagStyle(t, baby), fontSize:'10px'}">
+                                    {{ displayTagName(t) }}
+                                </span>
+                            </td>
+                        </tr>
+                    </tbody>
+
+                    <tbody v-else>
+                        <tr>
+                            <td colspan="4" class="muted-note" style="padding:14px;">
+                                今天還沒有新增寶寶。
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
         <div v-if="currentTab === 'analysis'">
             <div class="card">
                 <h3>📊 遺傳分析</h3>
@@ -887,7 +949,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycbzdW-3KIhL_ySVNmEPfWrxsM6N-OKcvXqM0uPddAl_QL0SoH1nZVhvs0QtitSWSXwo/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycby_wxmJ60r4qvPe-JTwMuzDOcZDXsruMx-ogIcPnJP4Oy65WMxwXbVSLCE07jv-Pk6A/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -1016,6 +1078,14 @@
                 speciesList() { return [...new Set(this.tags.map(t => t.species))].filter(String); },
                 uniqueAllTags() {
                     return [...new Set(this.tags.map(t => t.name))].sort();
+                },
+                todayNewBabies() {
+                    const todayKey = this.getTaiwanDateKey();
+
+                    return (this.pets || [])
+                        .filter(p => this.isOfficialPet(p))
+                        .filter(p => this.getDateKeyFromDateTime(p.createdAt) === todayKey)
+                        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
                 },
                 fubaoAnimalFormOptions() {
                     return this.getAnimalFormOptionsBySpecies('福寶寶');
@@ -1276,6 +1346,45 @@
                 isExternalPet(pet) {
                     if (!pet) return false;
                     return pet.owner === '其他人' || pet.type === 'external' || pet.source === 'external';
+                },
+                getTaiwanDateKey() {
+                    const now = new Date();
+                    const parts = new Intl.DateTimeFormat('en-CA', {
+                        timeZone: 'Asia/Taipei',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit'
+                    }).formatToParts(now);
+
+                    const y = parts.find(p => p.type === 'year')?.value || '';
+                    const m = parts.find(p => p.type === 'month')?.value || '';
+                    const d = parts.find(p => p.type === 'day')?.value || '';
+                    return `${y}-${m}-${d}`;
+                },
+
+                getDateKeyFromDateTime(value) {
+                    const text = String(value || '').trim();
+                    if (!text) return '';
+
+                    // 支援格式：2026-06-02 14:35:20
+                    const m = text.match(/^(\d{4}-\d{2}-\d{2})/);
+                    if (m) return m[1];
+
+                    // 如果未來存成 ISO，也可以解析
+                    const dt = new Date(text);
+                    if (Number.isNaN(dt.getTime())) return '';
+
+                    const parts = new Intl.DateTimeFormat('en-CA', {
+                        timeZone: 'Asia/Taipei',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit'
+                    }).formatToParts(dt);
+
+                    const y = parts.find(p => p.type === 'year')?.value || '';
+                    const mo = parts.find(p => p.type === 'month')?.value || '';
+                    const d = parts.find(p => p.type === 'day')?.value || '';
+                    return `${y}-${mo}-${d}`;
                 },
                 // 判斷是否為正式寵物。正式寵物才會出現在好胚/普普、候選清單、週刷新與扣次數流程。
                 isOfficialPet(pet) {
@@ -3397,8 +3506,14 @@
                         tags: this.sortTagsArray([...this.form.selectedTags], this.formSpecies), species: this.formSpecies,
                         remaining: (derivedRarity==='普通'?2:derivedRarity==='典藏'?3:4),
                         gender: this.form.gender, status: 'active', type: this.form.type,
-                        analyze: this.form.analyze, source: this.form.source,
-                        father: '', mother: ''
+                        analyze: this.form.analyze,
+                        source: this.form.source,
+                        father: '',
+                        mother: '',
+
+                        // 今日新寶寶用
+                        createdAt: this.getTaiwanNowString(),
+                        birthMethod: 'manual'
                     };
                     this.pets.push(newPet);
                     this.invalidatePetCachesOnly();
@@ -3479,7 +3594,10 @@
                                 rarity: derivedRarity, tags: fTags, species: this.resultSpecies,
                                 remaining: this.getInitialRemainingByRarity(derivedRarity), gender: this.singleChild.gender || '公',
                                 status: 'active', type: this.singleChild.type, analyze: true, source: 'breed',
-                                father: fatherId, mother: motherId
+                                father: fatherId, mother: motherId,
+                                // 今日新寶寶用
+                                createdAt: this.getTaiwanNowString(),
+                                birthMethod: 'breeding'
                             };
                             this.pets.push(newChild);
                             this.invalidatePetCachesOnly();
