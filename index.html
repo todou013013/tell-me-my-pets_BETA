@@ -949,7 +949,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycby_wxmJ60r4qvPe-JTwMuzDOcZDXsruMx-ogIcPnJP4Oy65WMxwXbVSLCE07jv-Pk6A/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycbxppqBK_B3ZbVGjcdjzc_meIZEzGTsEKXZssAEr41o5vJnAa178wmZqqHrX8qVKDIkB/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -1366,11 +1366,39 @@
                     const text = String(value || '').trim();
                     if (!text) return '';
 
-                    // 支援格式：2026-06-02 14:35:20
-                    const m = text.match(/^(\d{4}-\d{2}-\d{2})/);
-                    if (m) return m[1];
+                    // 1. 如果是 Google Sheet / GAS 回傳的 ISO 時間，例如：
+                    // 2026-06-01T17:08:29.000Z
+                    // 這種一定要轉成台灣日期，不可以直接抓前 10 碼。
+                    if (text.includes('T') || text.endsWith('Z')) {
+                        const dt = new Date(text);
+                        if (!Number.isNaN(dt.getTime())) {
+                            const parts = new Intl.DateTimeFormat('en-CA', {
+                                timeZone: 'Asia/Taipei',
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit'
+                            }).formatToParts(dt);
 
-                    // 如果未來存成 ISO，也可以解析
+                            const y = parts.find(p => p.type === 'year')?.value || '';
+                            const m = parts.find(p => p.type === 'month')?.value || '';
+                            const d = parts.find(p => p.type === 'day')?.value || '';
+                            return `${y}-${m}-${d}`;
+                        }
+                    }
+
+                    // 2. 如果是你自己存的台灣時間文字，例如：
+                    // 2026-06-02 1:08:29
+                    // 這種可以直接抓日期。
+                    const m = text.match(/^(\d{4}-\d{1,2}-\d{1,2})(?:\s|$)/);
+                    if (m) {
+                        const parts = m[1].split('-');
+                        const y = parts[0];
+                        const mo = String(parts[1]).padStart(2, '0');
+                        const d = String(parts[2]).padStart(2, '0');
+                        return `${y}-${mo}-${d}`;
+                    }
+
+                    // 3. 其他格式才嘗試用 Date 解析。
                     const dt = new Date(text);
                     if (Number.isNaN(dt.getTime())) return '';
 
@@ -1780,7 +1808,11 @@
                             father: String(p.father || ''),
                             mother: String(p.mother || ''),
                             species: p.species || p.speceis || '',
-                            analyze: p.analyze === true || String(p.analyze).toUpperCase() === 'TRUE' 
+                            analyze: p.analyze === true || String(p.analyze).toUpperCase() === 'TRUE',
+
+                            // 今日新寶寶用：從 Google Sheet / GAS 讀回來
+                            createdAt: String(p.createdAt || p.CreatedAt || '').trim(),
+                            birthMethod: String(p.birthMethod || p.BirthMethod || '').trim()
                         }));
 
                         // 👉 2. 這是讀取 tags 的程式碼
@@ -3490,7 +3522,7 @@
                 
                 // --- 寵物 CRUD ---
                 // 驗證手動登記並新增寵物，剩餘次數依稀有度設定
-                addPet() {
+                async addPet() {
                     if (!this.form.name || !this.formSpecies || !this.form.owner) return alert("請填寫必填資訊！");
                     if (this.formSpecies === '福寶寶') {
                     if (!this.formAnimalForm) return alert("請選擇福寶寶型態：兔 / 虎。");
@@ -3517,7 +3549,7 @@
                     };
                     this.pets.push(newPet);
                     this.invalidatePetCachesOnly();
-                    this.sendBatch({ upsertPets: [newPet] }, '新增寵物存檔中'); // 🔴 只傳送新增的這隻寵物給後端
+                    await this.sendBatch({ upsertPets: [newPet] }, '新增寵物存檔中'); // 🔴 只傳送新增的這隻寵物給後端
                     this.form.name = '';
                     this.form.selectedTags = [];
                     this.form.type = 'good';
