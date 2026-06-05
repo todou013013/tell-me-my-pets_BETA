@@ -128,7 +128,7 @@
             <button class="tab-btn" :class="{active: currentTab==='main'}" @click="currentTab='main'">❤️ 好胚</button>
             <button class="tab-btn" :class="{active: currentTab==='pu'}" @click="currentTab='pu'">🩵 普普</button>
             <button class="tab-btn" :class="{active: currentTab==='breeding'}" @click="currentTab='breeding'">🥚 繁育中 ({{ breedingQueue.length }})</button>
-            <button class="tab-btn" :class="{active: currentTab==='todayBabies'}" @click="currentTab='todayBabies'">🍼 今日新寶寶</button>
+            <button class="tab-btn" :class="{active: currentTab==='todayBabies'}" @click="currentTab='todayBabies'">🍼 本週新寶寶</button>
             <button class="tab-btn" :class="{active: currentTab==='analysis'}" @click="currentTab='analysis'">📊 遺傳分析</button>
             <button class="tab-btn" :class="{active: currentTab==='singleDetail'}" @click="currentTab='singleDetail'">🧬 單體明細</button>
             <button class="tab-btn" :class="{active: currentTab==='stats'}" @click="currentTab='stats'">📒 紀錄統計</button>
@@ -337,31 +337,156 @@
             <div class="card">
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
                     <div>
-                        <h3 style="margin:0;">🍼 今日新寶寶</h3>
+                        <h3 style="margin:0;">🍼 本週新寶寶</h3>
                         <p class="muted-note" style="margin:6px 0 0 0;">
-                            依照 Pets.CreatedAt 的台灣日期自動更新。淺灰底＝手動登記；白底＝繁育結果。
+                            依照 Pets.CreatedAt 的台灣時間自動更新。每週一早上 05:00 刷新；淺灰底＝手動登記；白底＝繁育結果。
                         </p>
                     </div>
                     <div class="muted-note">
-                        今日共 {{ todayNewBabies.length }} 隻
+                        本週共 {{ weeklyNewBabies.length }} 隻
+                        <br>
+                        目前顯示 {{ filteredWeeklyNewBabies.length }} 隻
+                        <br>
+                        週期：{{ weeklyNewBabiesRangeLabel }}
                     </div>
                 </div>
+                <div class="category-block" style="margin-top:12px; background:#f8f9ff; border-left-color:var(--primary);">
+                    <strong>🔍 本週新寶寶篩選：</strong>
 
-                <table class="mini-table" style="margin-top:12px;">
+                    <div class="filter-row">
+                        <select v-model="todayBabyFilterOwner">
+                            <option value="ALL">所有角色</option>
+                            <option v-for="o in ownerList" :key="'today_owner_' + o" :value="o">
+                                {{ o }}
+                            </option>
+                        </select>
+
+                        <select
+                            v-model="todayBabyFilterSpecies"
+                            @change="todayBabySelectedTags = []; todayBabyFilterAnimalForm = 'ALL';"
+                        >
+                            <option value="ALL">所有寵物種類</option>
+                            <option v-for="s in speciesList" :key="'today_species_' + s" :value="s">
+                                {{ s }}
+                            </option>
+                        </select>
+
+                        <select
+                            v-if="todayBabyFilterSpecies === '福寶寶'"
+                            v-model="todayBabyFilterAnimalForm"
+                            @change="todayBabySelectedTags = [];"
+                        >
+                            <option value="ALL">所有福寶寶型態</option>
+                            <option v-for="a in fubaoAnimalFormOptions" :key="'today_form_' + a" :value="a">
+                                {{ a }}
+                            </option>
+                        </select>
+
+                        <select v-model="todayBabyFilterType">
+                            <option value="ALL">所有胚子分類</option>
+                            <option value="good">❤️ 好胚</option>
+                            <option value="normal">🩵 普普</option>
+                            <option value="bad">🖤 爛胚</option>
+                        </select>
+
+                        <select v-model="todayBabyFilterTagMatchMode">
+                            <option value="all">詞條：同時符合</option>
+                            <option value="any">詞條：符合任一</option>
+                        </select>
+
+                        <button
+                            @click="isTodayBabyFilterExpanded = !isTodayBabyFilterExpanded"
+                            style="font-size:12px; padding: 6px 12px; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: bold;"
+                        >
+                            {{ isTodayBabyFilterExpanded ? '🔼 收起進階詞條' : '🔽 展開進階詞條' }}
+                            <span
+                                v-if="todayBabySelectedTags.length > 0"
+                                style="background: white; color: var(--primary); padding: 1px 6px; border-radius: 10px; margin-left: 6px; font-size: 10px;"
+                            >
+                                已選 {{ todayBabySelectedTags.length }}
+                            </span>
+                        </button>
+
+                        <button
+                            v-if="todayBabyFilterOwner !== 'ALL' || todayBabyFilterSpecies !== 'ALL' || todayBabyFilterType !== 'ALL' || todayBabySelectedTags.length > 0 || todayBabyFilterAnimalForm !== 'ALL'"
+                            @click="todayBabyFilterOwner = 'ALL'; todayBabyFilterSpecies = 'ALL'; todayBabyFilterType = 'ALL'; todayBabyFilterAnimalForm = 'ALL'; todayBabySelectedTags = [];"
+                            style="font-size:12px; padding: 6px 12px; background: var(--danger); color: white; border: none; border-radius: 8px;"
+                        >
+                            ✖ 清除篩選
+                        </button>
+                    </div>
+
+                    <div v-show="isTodayBabyFilterExpanded" style="border-top: 1px dashed #ccc; padding-top: 10px; margin-top: 10px;">
+                        <strong>
+                            🏷️ 詞條多重篩選
+                            <span style="font-size: 11px; color: #666;">
+                                （目前：{{ todayBabyFilterTagMatchMode === 'all' ? '同時符合' : '符合任一' }}）
+                            </span>：
+                        </strong>
+
+                        <div
+                            v-for="(group, cat) in todayBabyFilterTagsByCategory"
+                            :key="'today_cat_' + cat"
+                            style="margin-top: 8px; display: flex; align-items: flex-start;"
+                        >
+                            <span class="reg-category-title" style="min-width: 50px; text-align: center; margin-right: 10px;">
+                                {{ cat }}
+                            </span>
+
+                            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                <label
+                                    v-for="tag in group"
+                                    :key="'today_tag_' + cat + '_' + tag.name + '_' + getTagAnimalForm(tag)"
+                                    style="font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        :value="makeStoredTag(cat, tag.name, tag.species)"
+                                        v-model="todayBabySelectedTags"
+                                    >
+
+                                    <span
+                                        class="tag-pill"
+                                        :style="{...getTagStyle(tag.name, tag), fontSize:'10px', padding:'4px 8px', margin: 0}"
+                                    >
+                                        {{ displayTagOptionName(tag) }}
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div
+                            v-if="!Object.keys(todayBabyFilterTagsByCategory).length"
+                            class="muted-note"
+                            style="margin-top:8px;"
+                        >
+                            目前沒有可篩選的詞條。
+                        </div>
+                    </div>
+                </div>
+                                <table class="mini-table" style="margin-top:12px;">
                     <thead>
                         <tr>
+                            <th style="width:90px;">分類</th>
                             <th style="width:120px;">持有者</th>
                             <th style="width:160px;">名稱</th>
                             <th style="width:70px;">性別</th>
-                            <th>標籤圖示</th>
+                            <th style="min-width:720px;">標籤圖示 / 父母詞條</th>
                         </tr>
                     </thead>
 
-                    <tbody v-if="todayNewBabies.length">
-                        <tr v-for="baby in todayNewBabies"
+                    <tbody v-if="filteredWeeklyNewBabies.length">
+                        <tr v-for="baby in filteredWeeklyNewBabies"
                             :key="baby.id"
                             :style="{ background: baby.birthMethod === 'manual' ? '#f1f1f1' : '#ffffff' }">
+
+                            <!-- 新增：分類 -->
+                            <td>
+                                <strong>{{ getTypeLabel(baby.type) }}</strong>
+                            </td>
+
                             <td>{{ baby.owner }}</td>
+
                             <td>
                                 <strong>{{ baby.name }}</strong>
                                 <div class="muted-note">
@@ -369,26 +494,70 @@
                                     <span v-if="baby.createdAt">｜{{ baby.createdAt }}</span>
                                 </div>
                             </td>
+
                             <td>
                                 <span :class="baby.gender === '公' ? 'gender-m' : 'gender-f'">
                                     {{ baby.gender === '公' ? '♂ 公' : (baby.gender === '母' ? '♀ 母' : baby.gender || '未知') }}
                                 </span>
                             </td>
+
                             <td>
-                                <span v-for="t in baby.tags"
-                                    :key="baby.id + '_' + t"
-                                    class="tag-pill"
-                                    :style="{...getTagStyle(t, baby), fontSize:'10px'}">
-                                    {{ displayTagName(t) }}
-                                </span>
+                                <div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:nowrap; overflow-x:auto; padding-bottom:4px;">
+
+                                    <!-- 子嗣詞條：最左邊 -->
+                                    <div style="min-width:220px; flex:1;">
+                                        <strong class="muted-note">寶寶：</strong>
+                                        <div style="margin-top:3px;">
+                                            <span v-for="t in baby.tags"
+                                                :key="baby.id + '_baby_' + t"
+                                                class="tag-pill"
+                                                :style="{...getTagStyle(t, baby), fontSize:'10px'}">
+                                                {{ displayTagName(t) }}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <!-- 父親詞條：顯示在寶寶右側 -->
+                                    <div v-if="baby.father || baby.Father" style="min-width:220px; flex:1;">
+                                        <strong class="muted-note">父：{{ getParentDisplayName(baby, 'father') }}</strong>
+                                        <div style="margin-top:3px;">
+                                            <span v-for="t in getParentTags(baby, 'father')"
+                                                :key="baby.id + '_father_' + t"
+                                                class="tag-pill"
+                                                :style="{...getTagStyle(t, getBabyParent(baby, 'father') || baby), fontSize:'9px'}">
+                                                {{ displayTagName(t) }}
+                                            </span>
+                                            <span v-if="!getParentTags(baby, 'father').length" class="muted-note">
+                                                找不到父方詞條
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <!-- 母親詞條：顯示在父親右側 -->
+                                    <div v-if="baby.mother || baby.Mother" style="min-width:220px; flex:1;">
+                                        <strong class="muted-note">母：{{ getParentDisplayName(baby, 'mother') }}</strong>
+                                        <div style="margin-top:3px;">
+                                            <span v-for="t in getParentTags(baby, 'mother')"
+                                                :key="baby.id + '_mother_' + t"
+                                                class="tag-pill"
+                                                :style="{...getTagStyle(t, getBabyParent(baby, 'mother') || baby), fontSize:'9px'}">
+                                                {{ displayTagName(t) }}
+                                            </span>
+                                            <span v-if="!getParentTags(baby, 'mother').length" class="muted-note">
+                                                找不到母方詞條
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                </div>
                             </td>
                         </tr>
                     </tbody>
 
                     <tbody v-else>
                         <tr>
-                            <td colspan="4" class="muted-note" style="padding:14px;">
-                                今天還沒有新增寶寶。
+                            <td colspan="5" class="muted-note" style="padding:14px;">
+                                本週沒有符合篩選條件的新寶寶。
                             </td>
                         </tr>
                     </tbody>
@@ -949,7 +1118,7 @@
                 return {
                     // --- 遠端 API ---
                     // Google Apps Script Web App URL（所有讀寫都走此端點）
-                    scriptUrl: 'https://script.google.com/macros/s/AKfycbxppqBK_B3ZbVGjcdjzc_meIZEzGTsEKXZssAEr41o5vJnAa178wmZqqHrX8qVKDIkB/exec', 
+                    scriptUrl: 'https://script.google.com/macros/s/AKfycbz7wyTJsSkofHGkmQI3cis6swFUMVUBzBqkwJJ-BcebciYSc0dbPNoqo5Es7w0u8Gx2bQ/exec', 
                     // --- 介面狀態 ---
                     currentTab: 'main', // 目前分頁：main | pu | breeding | analysis
                     isLoading: false,   // 非同步期間禁用部分按鈕
@@ -1062,6 +1231,17 @@
                     summaryFilterOwner: 'ALL',
                     summaryFilterSpecies: '福寶寶',
                     summaryFilterApplied: false,
+                    // 本週新寶寶篩選
+                    // 本週新寶寶篩選
+                    todayBabyFilterOwner: 'ALL',
+                    todayBabyFilterSpecies: 'ALL',
+                    todayBabyFilterType: 'ALL',
+
+                    // 本週新寶寶詞條篩選
+                    todayBabyFilterAnimalForm: 'ALL',
+                    todayBabyFilterTagMatchMode: 'all',
+                    todayBabySelectedTags: [],
+                    isTodayBabyFilterExpanded: false,
                     // 區塊級遺傳分析 loading。這些只提示該區塊正在計算，不會鎖住整個頁面。
                     isRuleAnalyzing: false,
                     isRankingAnalyzing: false,
@@ -1079,13 +1259,53 @@
                 uniqueAllTags() {
                     return [...new Set(this.tags.map(t => t.name))].sort();
                 },
-                todayNewBabies() {
-                    const todayKey = this.getTaiwanDateKey();
+                weeklyNewBabies() {
+                    const window = this.getCurrentBabyWeekWindow();
 
                     return (this.pets || [])
                         .filter(p => this.isOfficialPet(p))
-                        .filter(p => this.getDateKeyFromDateTime(p.createdAt) === todayKey)
-                        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+                        .filter(p => {
+                            const t = this.getTaiwanWallMsFromDateTime(p.createdAt);
+                            return Number.isFinite(t) && t >= window.startMs && t < window.endMs;
+                        })
+                        .sort((a, b) => {
+                            const tb = this.getTaiwanWallMsFromDateTime(b.createdAt);
+                            const ta = this.getTaiwanWallMsFromDateTime(a.createdAt);
+                            return tb - ta;
+                        });
+                },
+                filteredWeeklyNewBabies() {
+                    return (this.weeklyNewBabies || []).filter(p => {
+                        const ownerMatch =
+                            this.todayBabyFilterOwner === 'ALL' ||
+                            p.owner === this.todayBabyFilterOwner;
+
+                        const speciesMatch =
+                            this.todayBabyFilterSpecies === 'ALL' ||
+                            this.getSpeciesOfPet(p) === this.todayBabyFilterSpecies;
+
+                        const typeMatch =
+                            this.todayBabyFilterType === 'ALL' ||
+                            String(p.type || p.Type || '').trim() === this.todayBabyFilterType;
+
+                        const animalFormMatch =
+                            this.todayBabyFilterAnimalForm === 'ALL' ||
+                            this.hasPetAnimalForm(p, this.todayBabyFilterAnimalForm);
+
+                        const tagMatch =
+                            this.matchesPetTagFilter(
+                                p,
+                                this.todayBabySelectedTags,
+                                this.todayBabyFilterTagMatchMode
+                            );
+
+                        return ownerMatch && speciesMatch && typeMatch && animalFormMatch && tagMatch;
+                    });
+                },
+
+                weeklyNewBabiesRangeLabel() {
+                    const window = this.getCurrentBabyWeekWindow();
+                    return `${this.formatTaiwanWallMs(window.startMs)} ～ ${this.formatTaiwanWallMs(window.endMs - 1000)}`;
                 },
                 fubaoAnimalFormOptions() {
                     return this.getAnimalFormOptionsBySpecies('福寶寶');
@@ -1140,6 +1360,35 @@
 
                             if (!grouped[cat].some(sameKey)) grouped[cat].push(t);
                         });
+                    return grouped;
+                },
+                todayBabyFilterTagsByCategory() {
+                    const grouped = {};
+
+                    this.tags
+                        .filter(t => {
+                            if (this.todayBabyFilterSpecies === 'ALL') return true;
+                            return this.normalizeKey(t.species) === this.normalizeKey(this.todayBabyFilterSpecies);
+                        })
+                        .filter(t => {
+                            // 福寶寶才需要細分型態
+                            if (this.todayBabyFilterSpecies !== '福寶寶') return true;
+                            if (this.todayBabyFilterAnimalForm === 'ALL') return true;
+                            if (!this.isTypeCategory(t.category)) return true;
+
+                            return this.getTagAnimalForm(t) === this.normalizeKey(this.todayBabyFilterAnimalForm);
+                        })
+                        .forEach(t => {
+                            const cat = t.category || '未分類';
+                            if (!grouped[cat]) grouped[cat] = [];
+
+                            const sameKey = x =>
+                                x.name === t.name &&
+                                this.getTagAnimalForm(x) === this.getTagAnimalForm(t);
+
+                            if (!grouped[cat].some(sameKey)) grouped[cat].push(t);
+                        });
+
                     return grouped;
                 },
                 // 繁育中專用篩選：只要父母任一方符合持有者，就顯示該列。
@@ -1568,6 +1817,105 @@
                     const p = this.getTaiwanDateParts(new Date());
                     return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
                 },
+                taiwanPartsToWallMs(parts) {
+                    if (!parts) return NaN;
+
+                    const y = Number(parts.year);
+                    const m = Number(parts.month);
+                    const d = Number(parts.day);
+                    const h = Number(parts.hour || 0) % 24;
+                    const mi = Number(parts.minute || 0);
+                    const s = Number(parts.second || 0);
+
+                    if (!y || !m || !d) return NaN;
+
+                    // 這裡不是轉真實 UTC，而是把「台灣牆上時間」轉成可比較的數字。
+                    // 目的：讓 2026-06-02 01:08:29 可以直接跟「週一 05:00」比較。
+                    return Date.UTC(y, m - 1, d, h, mi, s);
+                },
+
+                getTaiwanWallMsFromDateTime(value) {
+                    if (!value) return NaN;
+
+                    // 如果前端拿到的是 Date 物件
+                    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+                        return this.taiwanPartsToWallMs(this.getTaiwanDateParts(value));
+                    }
+
+                    const text = String(value || '').trim();
+                    if (!text) return NaN;
+
+                    // 情況 A：你自己存的台灣時間文字
+                    // 例如：2026-06-02 1:08:29 或 2026-06-02 01:08:29
+                    // 這種直接當台灣時間解析。
+                    if (!text.includes('T') && !text.endsWith('Z')) {
+                        const m = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+                        if (m) {
+                            return this.taiwanPartsToWallMs({
+                                year: m[1],
+                                month: String(m[2]).padStart(2, '0'),
+                                day: String(m[3]).padStart(2, '0'),
+                                hour: String(m[4] || '0').padStart(2, '0'),
+                                minute: String(m[5] || '0').padStart(2, '0'),
+                                second: String(m[6] || '0').padStart(2, '0')
+                            });
+                        }
+                    }
+
+                    // 情況 B：Google Sheet / GAS 可能回傳 ISO
+                    // 例如：2026-06-01T17:08:29.000Z
+                    // 這代表台灣時間 2026-06-02 01:08:29，所以要先轉台灣 parts。
+                    const dt = new Date(text);
+                    if (Number.isNaN(dt.getTime())) return NaN;
+
+                    return this.taiwanPartsToWallMs(this.getTaiwanDateParts(dt));
+                },
+
+                getCurrentBabyWeekWindow() {
+                    const nowParts = this.getTaiwanDateParts(new Date());
+                    const nowMs = this.taiwanPartsToWallMs(nowParts);
+
+                    const y = Number(nowParts.year);
+                    const m = Number(nowParts.month);
+                    const d = Number(nowParts.day);
+
+                    // 台灣今天 00:00 的牆上時間
+                    const today00 = Date.UTC(y, m - 1, d, 0, 0, 0);
+
+                    // 取得今天是星期幾：Sun=0, Mon=1, ...
+                    const day = new Date(today00).getUTCDay();
+
+                    // 轉成「距離本週一幾天」：Mon=0, Tue=1, ..., Sun=6
+                    const daysSinceMonday = (day + 6) % 7;
+
+                    // 本週一 05:00
+                    let startMs = today00 - daysSinceMonday * 86400000 + 5 * 3600000;
+
+                    // 如果現在還沒到本週一 05:00，例如週一凌晨 02:00，
+                    // 那仍然算上一週。
+                    if (nowMs < startMs) {
+                        startMs -= 7 * 86400000;
+                    }
+
+                    return {
+                        startMs,
+                        endMs: startMs + 7 * 86400000
+                    };
+                },
+
+                formatTaiwanWallMs(ms) {
+                    if (!Number.isFinite(ms)) return '';
+
+                    const d = new Date(ms);
+                    const y = d.getUTCFullYear();
+                    const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+                    const day = String(d.getUTCDate()).padStart(2, '0');
+                    const h = String(d.getUTCHours()).padStart(2, '0');
+                    const mi = String(d.getUTCMinutes()).padStart(2, '0');
+                    const s = String(d.getUTCSeconds()).padStart(2, '0');
+
+                    return `${y}-${mo}-${day} ${h}:${mi}:${s}`;
+                },
                 // 台灣時間戳 ID：YYYYMMDDHHmmssSSS，中間不加底線，用於 temp_ 外部父母 ID。
                 // 加入毫秒可避免同一秒連續建立「其他人配配」時產生重複 ID。
                 getTaiwanTimestampId() {
@@ -1802,15 +2150,16 @@
                         // 👉 1. 這裡是你原本不小心刪掉的 pets 讀取程式碼，幫你補回來了！
                         this.pets = (data.pets || []).map(p => ({ 
                             ...p, 
-                            id: String(p.id || Date.now() + Math.random()),
+                            id: String(p.id || p.ID || Date.now() + Math.random()),
                             isEditing: false, 
-                            tags: this.parseTags(p.tags),
-                            father: String(p.father || ''),
-                            mother: String(p.mother || ''),
-                            species: p.species || p.speceis || '',
-                            analyze: p.analyze === true || String(p.analyze).toUpperCase() === 'TRUE',
+                            tags: this.parseTags(p.tags || p.Tags),
+                            type: String(p.type || p.Type || 'good').trim(),
+                            father: String(p.father || p.Father || '').trim(),
+                            mother: String(p.mother || p.Mother || '').trim(),
+                            species: String(p.species || p.speceis || p.Species || '').trim(),
+                            analyze: p.analyze === true || String(p.analyze || p.Analyze || '').toUpperCase() === 'TRUE',
 
-                            // 今日新寶寶用：從 Google Sheet / GAS 讀回來
+                            // 本週新寶寶用：從 Google Sheet / GAS 讀回來
                             createdAt: String(p.createdAt || p.CreatedAt || '').trim(),
                             birthMethod: String(p.birthMethod || p.BirthMethod || '').trim()
                         }));
@@ -1916,6 +2265,15 @@
                     }
 
                     try {
+                        // 寫入前保險：如果寵物已經有 createdAt / birthMethod，就同步補大寫欄位給 Sheet
+                        if (payload && Array.isArray(payload.upsertPets)) {
+                            payload.upsertPets = payload.upsertPets.map(p => ({
+                                ...p,
+                                CreatedAt: p.CreatedAt || p.createdAt || '',
+                                BirthMethod: p.BirthMethod || p.birthMethod || ''
+                            }));
+                        }
+
                         await fetch(this.scriptUrl, {
                             method: 'POST',
                             mode: 'no-cors',
@@ -2064,7 +2422,14 @@
                     return s.split(',').map(x => x.trim()).filter(Boolean);
                 },
                 normalizeKey(v) {
-                    return String(v || '').trim();
+                    if (v === null || v === undefined) return '';
+                    return String(v)
+                        .normalize('NFKC')
+                        .replace(/\u3000/g, ' ')
+                        .trim();
+                },
+                normalizeCategoryKey(category) {
+                    return this.normalizeKey(category);
                 },
                 // ------------------------------------------------------------
                 // 詞條儲存 key 工具
@@ -2097,6 +2462,50 @@
                     if (meta) return this.makeStoredTag(meta.category, meta.name, meta.species);
                     if (info.encoded) return this.makeStoredTag(info.category || category, info.name, info.species || species);
                     return this.normalizeKey(info.name);
+                },
+                getTypeLabel(type) {
+                    const t = String(type || '').trim();
+                    if (t === 'good') return '❤️ 好胚';
+                    if (t === 'normal') return '🩵 普普';
+                    if (t === 'bad') return '🖤 爛爛';
+                    return '未分類';
+                },
+
+                getBabyParent(baby, role) {
+                    if (!baby) return null;
+
+                    const targetId = role === 'father'
+                        ? String(baby.father || baby.Father || '').trim()
+                        : String(baby.mother || baby.Mother || '').trim();
+
+                    if (!targetId) return null;
+
+                    // 優先用 ID 找
+                    let parent = (this.pets || []).find(p => String(p.id) === targetId);
+
+                    // 保險：如果舊資料 Father / Mother 存的是名字，也能找得到
+                    if (!parent) {
+                        parent = (this.pets || []).find(p => String(p.name || '').trim() === targetId);
+                    }
+
+                    return parent || null;
+                },
+
+                getParentDisplayName(baby, role) {
+                    const parent = this.getBabyParent(baby, role);
+                    const raw = role === 'father'
+                        ? String(baby.father || baby.Father || '').trim()
+                        : String(baby.mother || baby.Mother || '').trim();
+
+                    if (!raw) return '無資料';
+                    if (!parent) return raw;
+
+                    return `${parent.name || raw}（${parent.owner || '未知持有者'}）`;
+                },
+
+                getParentTags(baby, role) {
+                    const parent = this.getBabyParent(baby, role);
+                    return parent ? (parent.tags || []) : [];
                 },
                 getTagComparableKeys(raw, species = '') {
                     const keys = [];
@@ -2225,40 +2634,71 @@
                 makeStoredTag(category, name, species = '') {
                     const cleanSpecies = this.normalizeKey(species);
                     const cleanName = this.normalizeKey(name);
-                    const cleanCat = this.normalizeKey(category);
+                    const cleanCat = this.normalizeCategoryKey(category);
                     if (!cleanName) return '';
                     // 「無X」是特殊佔位詞條，保留原樣即可。
                     if (String(cleanName).startsWith('無')) return cleanName;
                     // 一律帶 species + category，避免不同分類、不同物種、甚至不同名稱但清單推斷錯誤時互相影響。
                     return `${cleanSpecies}${this.tagStorageSeparator()}${cleanCat}${this.tagStorageSeparator()}${cleanName}`;
                 },
+                isLegacyCategoryMatch(oldCategory, newCategory, tagName = '') {
+                    const oldCat = this.normalizeKey(oldCategory);
+                    const newCat = this.normalizeKey(newCategory);
+                    const name = this.normalizeKey(tagName);
+
+                    // 完全相同一定通過
+                    if (oldCat === newCat) return true;
+
+                    // 只允許「舊體型」被新「體型II」認得
+                    // 不改顯示、不改儲存，只在比對時相容
+                    if (
+                        oldCat === '體型' &&
+                        newCat === '體型II' &&
+                        name === '長耳'
+                    ) {
+                        return true;
+                    }
+
+                    return false;
+                },
                 tagMatches(raw, name, category = '', species = '') {
                     const info = this.splitStoredTag(raw);
                     const target = this.splitStoredTag(name);
+
                     const keyName = this.normalizeKey(target.name);
                     const keyCat = this.normalizeKey(category || target.category);
                     const keySpecies = this.normalizeKey(species || target.species);
 
+                    if (!keyName) return false;
                     if (this.normalizeKey(info.name) !== keyName) return false;
 
-                    // encoded 新資料：可精準比對物種 / 分類 / 名稱。
+                    // 新格式：物種::分類::詞條名
+                    // 正常精準比對，但允許舊「體型｜長耳」被新「體型II｜長耳」命中。
                     if (info.encoded) {
                         if (keySpecies && info.species && this.normalizeKey(info.species) !== keySpecies) return false;
-                        if (keyCat && this.normalizeKey(info.category) !== keyCat) return false;
+
+                        if (keyCat && !this.isLegacyCategoryMatch(info.category, keyCat, keyName)) {
+                            return false;
+                        }
+
                         return true;
                     }
 
-                    // 若沒有指定分類，只比對名稱，供舊資料顯示 / 搜尋 fallback 使用。
+                    // 舊格式：只有詞條名，例如「長耳」
                     if (!keyCat) return true;
 
-                    // 舊資料相容：純名稱詞條無法自帶分類，只在 Tags 表中能唯一定位時才視為符合。
-                    // 若有多個候選，保守回傳 false，避免選 A 分類時刪到 B 分類。
                     const candidates = (this.tags || []).filter(t =>
-                        this.normalizeKey(t.name) === this.normalizeKey(info.name) &&
+                        this.normalizeKey(t.name) === keyName &&
                         (!keySpecies || this.normalizeKey(t.species) === keySpecies)
                     );
-                    if (candidates.length === 1) return this.normalizeKey(candidates[0].category) === keyCat;
-                    return false;
+
+                    if (candidates.length === 1) {
+                        return this.isLegacyCategoryMatch(candidates[0].category, keyCat, keyName);
+                    }
+
+                    return candidates.some(t =>
+                        this.isLegacyCategoryMatch(t.category, keyCat, keyName)
+                    );
                 },
                 hasSelectedTag(list, category, name, species = '') {
                     return (list || []).some(x => this.tagMatches(x, name, category, species));
@@ -3532,6 +3972,8 @@
                 }
                     const resolvedName = this.getAutoIndexedName(this.form.owner, this.form.name, this.form.selectedTags, this.form.gender);
                     const derivedRarity = this.getRarityFromTags(this.form.selectedTags);
+                    const nowTW = this.getTaiwanNowString();
+
                     const newPet = {
                         id: Date.now().toString() + Math.floor(Math.random()*10),
                         owner: this.form.owner, name: resolvedName, rarity: derivedRarity,
@@ -3543,9 +3985,11 @@
                         father: '',
                         mother: '',
 
-                        // 今日新寶寶用
-                        createdAt: this.getTaiwanNowString(),
-                        birthMethod: 'manual'
+                        // 本週新寶寶用：小寫給前端，大寫給 Google Sheet 欄位
+                        createdAt: nowTW,
+                        birthMethod: 'manual',
+                        CreatedAt: nowTW,
+                        BirthMethod: 'manual'
                     };
                     this.pets.push(newPet);
                     this.invalidatePetCachesOnly();
@@ -3621,15 +4065,20 @@
                             const fatherId = String(p.gender === '公' ? p.id : other.id);
                             const motherId = String(p.gender === '母' ? p.id : other.id);
 
+                            const nowTW = this.getTaiwanNowString();
+
                             const newChild = {
                                 id: Date.now().toString(), owner: p.owner, name: resolvedChildName,
                                 rarity: derivedRarity, tags: fTags, species: this.resultSpecies,
                                 remaining: this.getInitialRemainingByRarity(derivedRarity), gender: this.singleChild.gender || '公',
                                 status: 'active', type: this.singleChild.type, analyze: true, source: 'breed',
                                 father: fatherId, mother: motherId,
-                                // 今日新寶寶用
-                                createdAt: this.getTaiwanNowString(),
-                                birthMethod: 'breeding'
+
+                                // 本週新寶寶用：小寫給前端，大寫給 Google Sheet 欄位
+                                createdAt: nowTW,
+                                birthMethod: 'breeding',
+                                CreatedAt: nowTW,
+                                BirthMethod: 'breeding'
                             };
                             this.pets.push(newChild);
                             this.invalidatePetCachesOnly();
